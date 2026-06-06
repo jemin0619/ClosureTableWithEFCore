@@ -1,10 +1,10 @@
-﻿namespace Project.Domain;
+namespace Project.Domain;
 
 public class Specification
 {
-    public string Name { get; set; }
-    public InnerSpecA InnerSpecA { get; set; }
-    public InnerSpecB InnerSpecB { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public InnerSpecA InnerSpecA { get; set; } = new();
+    public InnerSpecB InnerSpecB { get; set; } = new();
 }
 
 public class InnerSpecA
@@ -15,9 +15,9 @@ public class InnerSpecA
 
 public class InnerSpecB
 {
-    public string C { get; set; }
-    public string D { get; set; }
-    public InnerSpecC InnerSpecC { get; set; }
+    public string C { get; set; } = string.Empty;
+    public string D { get; set; } = string.Empty;
+    public InnerSpecC InnerSpecC { get; set; } = new();
 }
 
 public class InnerSpecC
