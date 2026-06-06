@@ -34,8 +34,8 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
         return _specificationRepository.GetValueByPathAsync(serialCode, path, cancellationToken);
     }
 
-    public Task<string?> GetValueAsync(string serialCode, string path, CancellationToken cancellationToken = default)
+    Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)
     {
-        return _specificationRepository.GetValueByPathAsync(serialCode, path, cancellationToken);
+        return GetSpecValueAsync(serialCode, path, cancellationToken);
     }
 }
