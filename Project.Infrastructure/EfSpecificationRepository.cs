@@ -81,6 +81,15 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
         return _treeMapper.GetValueByPath(root, path);
     }
 
+    public async Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.SpecSerialRoots
+            .AsNoTracking()
+            .OrderBy(x => x.SerialCode)
+            .Select(x => x.SerialCode)
+            .ToListAsync(cancellationToken);
+    }
+
     private async Task DeleteSubtreeAsync(int rootNodeId, CancellationToken cancellationToken)
     {
         var nodeIds = await _dbContext.SpecClosures

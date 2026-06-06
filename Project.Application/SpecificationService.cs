@@ -11,6 +11,8 @@ public interface ISpecificationService
         where TSpecification : class, new();
 
     Task<string?> GetSpecValueAsync(string serialCode, string path, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class SpecificationService(ISpecificationRepository specificationRepository) : ISpecificationService, ISpecValueReader
@@ -32,6 +34,11 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
     public Task<string?> GetSpecValueAsync(string serialCode, string path, CancellationToken cancellationToken = default)
     {
         return _specificationRepository.GetValueByPathAsync(serialCode, path, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default)
+    {
+        return _specificationRepository.ListSerialCodesAsync(cancellationToken);
     }
 
     Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)

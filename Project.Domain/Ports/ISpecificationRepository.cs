@@ -9,4 +9,6 @@ public interface ISpecificationRepository
         where TSpecification : class, new();
 
     Task<string?> GetValueByPathAsync(string serialCode, string path, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default);
 }

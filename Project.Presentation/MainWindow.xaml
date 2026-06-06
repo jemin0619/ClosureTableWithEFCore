@@ -1,12 +1,142 @@
-﻿<Window x:Class="Project.Presentation.MainWindow"
+<Window x:Class="Project.Presentation.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:Project.Presentation"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="Specification Save / Load"
+        Height="560"
+        Width="820"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <GroupBox Header="Save" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Serial Code"/>
+                    <TextBox x:Name="SerialCodeTextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Saved Serials"/>
+                    <ComboBox x:Name="SerialSelectionComboBox"
+                              Grid.Row="1"
+                              Grid.Column="1"
+                              Margin="0,0,0,8"
+                              DisplayMemberPath="."/>
+
+                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left">
+                        <Button x:Name="SaveButton" Width="100" Margin="0,0,8,0" Click="SaveButton_Click">Save</Button>
+                        <Button x:Name="RefreshButton" Width="100" Click="RefreshButton_Click">Refresh List</Button>
+                    </StackPanel>
+                </Grid>
+            </GroupBox>
+
+            <GroupBox Grid.Column="2" Header="Load" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Select Serial"/>
+                    <ComboBox x:Name="LoadSerialComboBox"
+                              Grid.Row="0"
+                              Grid.Column="1"
+                              Margin="0,0,0,8"
+                              DisplayMemberPath="."/>
+
+                    <Button x:Name="LoadButton" Grid.Row="1" Grid.Column="1" Width="100" HorizontalAlignment="Left" Click="LoadButton_Click">Load</Button>
+                </Grid>
+            </GroupBox>
+        </Grid>
+
+        <GroupBox Grid.Row="1" Header="Specification" Padding="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock FontWeight="SemiBold" Text="Root" Margin="0,0,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="Name"/>
+                        <TextBox x:Name="NameTextBox" Grid.Column="1"/>
+                    </Grid>
+
+                    <TextBlock FontWeight="SemiBold" Text="InnerSpecA" Margin="0,8,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="A"/>
+                        <TextBox x:Name="InnerSpecATextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="B"/>
+                        <TextBox x:Name="InnerSpecBTextBox" Grid.Row="1" Grid.Column="1"/>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock FontWeight="SemiBold" Text="InnerSpecB" Margin="0,0,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="C"/>
+                        <TextBox x:Name="InnerSpecCTextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="D"/>
+                        <TextBox x:Name="InnerSpecDTextBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Type"/>
+                        <ComboBox x:Name="SpecTypeComboBox" Grid.Row="2" Grid.Column="1"/>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <TextBlock x:Name="StatusTextBlock"
+                   Grid.Row="2"
+                   Margin="0,16,0,0"
+                   Foreground="DarkSlateBlue"
+                   TextWrapping="Wrap"/>
     </Grid>
 </Window>

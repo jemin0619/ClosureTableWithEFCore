@@ -9,7 +9,7 @@ public static class DependencyInjection
     public static IServiceCollection AddSpecificationInfrastructure(
         this IServiceCollection services,
         string connectionString,
-        string mariaDbVersion = "11.4.0")
+        string mariaDbVersion = "11.4.5")
     {
         var serverVersion = ServerVersion.Parse(mariaDbVersion);
 
