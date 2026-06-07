@@ -3,11 +3,35 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:Project.Presentation.ViewModels"
         mc:Ignorable="d"
         Title="Specification Save / Load"
-        Height="560"
+        Height="600"
         Width="820"
         WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- Recursive tree template: inner nodes expand into Children, leaf nodes show an input control -->
+        <HierarchicalDataTemplate DataType="{x:Type vm:SpecNodeViewModel}"
+                                  ItemsSource="{Binding Children}">
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+                <TextBlock Text="{Binding DisplayName}"
+                           Width="140"
+                           VerticalAlignment="Center"/>
+                <TextBox Text="{Binding StringValue, UpdateSourceTrigger=PropertyChanged}"
+                         Width="200"
+                         VerticalAlignment="Center"
+                         Visibility="{Binding IsStringLeaf, Converter={StaticResource BoolToVis}}"/>
+                <ComboBox ItemsSource="{Binding EnumValues}"
+                          SelectedItem="{Binding SelectedEnumValue}"
+                          Width="200"
+                          VerticalAlignment="Center"
+                          Visibility="{Binding IsEnumLeaf, Converter={StaticResource BoolToVis}}"/>
+            </StackPanel>
+        </HierarchicalDataTemplate>
+    </Window.Resources>
+
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -15,6 +39,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Save / Load panels -->
         <Grid Grid.Row="0" Margin="0,0,0,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -35,18 +60,17 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Serial Code"/>
-                    <TextBox x:Name="SerialCodeTextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"/>
+                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
+                             Text="{Binding SerialCode, UpdateSourceTrigger=PropertyChanged}"/>
 
                     <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Saved Serials"/>
-                    <ComboBox x:Name="SerialSelectionComboBox"
-                              Grid.Row="1"
-                              Grid.Column="1"
-                              Margin="0,0,0,8"
-                              DisplayMemberPath="."/>
+                    <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"
+                              ItemsSource="{Binding SerialCodes}"
+                              SelectedItem="{Binding SelectedSerialForSave}"/>
 
                     <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left">
-                        <Button x:Name="SaveButton" Width="100" Margin="0,0,8,0" Click="SaveButton_Click">Save</Button>
-                        <Button x:Name="RefreshButton" Width="100" Click="RefreshButton_Click">Refresh List</Button>
+                        <Button Width="100" Margin="0,0,8,0" Command="{Binding SaveCommand}">Save</Button>
+                        <Button Width="100" Command="{Binding RefreshCommand}">Refresh List</Button>
                     </StackPanel>
                 </Grid>
             </GroupBox>
@@ -63,80 +87,32 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Select Serial"/>
-                    <ComboBox x:Name="LoadSerialComboBox"
-                              Grid.Row="0"
-                              Grid.Column="1"
-                              Margin="0,0,0,8"
-                              DisplayMemberPath="."/>
+                    <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
+                              ItemsSource="{Binding SerialCodes}"
+                              SelectedItem="{Binding SelectedSerialForLoad}"/>
 
-                    <Button x:Name="LoadButton" Grid.Row="1" Grid.Column="1" Width="100" HorizontalAlignment="Left" Click="LoadButton_Click">Load</Button>
+                    <Button Grid.Row="1" Grid.Column="1" Width="100" HorizontalAlignment="Left"
+                            Command="{Binding LoadCommand}">Load</Button>
                 </Grid>
             </GroupBox>
         </Grid>
 
+        <!-- Specification tree (all nodes expanded by default, collapsible) -->
         <GroupBox Grid.Row="1" Header="Specification" Padding="12">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="16"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0">
-                    <TextBlock FontWeight="SemiBold" Text="Root" Margin="0,0,0,8"/>
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="Name"/>
-                        <TextBox x:Name="NameTextBox" Grid.Column="1"/>
-                    </Grid>
-
-                    <TextBlock FontWeight="SemiBold" Text="InnerSpecA" Margin="0,8,0,8"/>
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="A"/>
-                        <TextBox x:Name="InnerSpecATextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="B"/>
-                        <TextBox x:Name="InnerSpecBTextBox" Grid.Row="1" Grid.Column="1"/>
-                    </Grid>
-                </StackPanel>
-
-                <StackPanel Grid.Column="2">
-                    <TextBlock FontWeight="SemiBold" Text="InnerSpecB" Margin="0,0,0,8"/>
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="C"/>
-                        <TextBox x:Name="InnerSpecCTextBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="D"/>
-                        <TextBox x:Name="InnerSpecDTextBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"/>
-                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Type"/>
-                        <ComboBox x:Name="SpecTypeComboBox" Grid.Row="2" Grid.Column="1"/>
-                    </Grid>
-                </StackPanel>
-            </Grid>
+            <TreeView ItemsSource="{Binding SpecNodes}" BorderThickness="0">
+                <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                        <Setter Property="Padding" Value="2"/>
+                    </Style>
+                </TreeView.ItemContainerStyle>
+            </TreeView>
         </GroupBox>
 
-        <TextBlock x:Name="StatusTextBlock"
-                   Grid.Row="2"
+        <TextBlock Grid.Row="2"
                    Margin="0,16,0,0"
                    Foreground="DarkSlateBlue"
-                   TextWrapping="Wrap"/>
+                   TextWrapping="Wrap"
+                   Text="{Binding StatusMessage}"/>
     </Grid>
 </Window>

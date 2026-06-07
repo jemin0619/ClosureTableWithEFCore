@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Project.Application;
 using Project.Domain.Ports;
 using Project.Infrastructure;
+using Project.Presentation.ViewModels;
 
 namespace Project.Presentation;
 
@@ -45,6 +46,7 @@ public partial class App : System.Windows.Application
         services.AddScoped<SpecificationService>();
         services.AddScoped<ISpecificationService>(provider => provider.GetRequiredService<SpecificationService>());
         services.AddScoped<ISpecValueReader>(provider => provider.GetRequiredService<SpecificationService>());
+        services.AddScoped<MainViewModel>();
         services.AddScoped<MainWindow>();
     }
 
