@@ -14,15 +14,19 @@ public sealed class SpecNodeViewModel : INotifyPropertyChanged
     private bool _isExpanded = true;
     private string _stringValue = string.Empty;
     private object? _selectedEnumValue;
+    private bool? _selectedBooleanValue;
 
     public string DisplayName { get; }
     public bool IsLeaf { get; }
     public bool IsEnum { get; }
+    public bool IsBoolean { get; }
     public IReadOnlyList<object>? EnumValues { get; }
+    public IReadOnlyList<bool>? BooleanValues { get; }
     public ObservableCollection<SpecNodeViewModel> Children { get; } = [];
 
-    public bool IsStringLeaf => IsLeaf && !IsEnum;
+    public bool IsStringLeaf => IsLeaf && !IsEnum && !IsBoolean;
     public bool IsEnumLeaf => IsLeaf && IsEnum;
+    public bool IsBooleanLeaf => IsLeaf && IsBoolean;
 
     public bool IsExpanded
     {
@@ -42,13 +46,23 @@ public sealed class SpecNodeViewModel : INotifyPropertyChanged
         set => SetField(ref _selectedEnumValue, value);
     }
 
+    public bool? SelectedBooleanValue
+    {
+        get => _selectedBooleanValue;
+        set => SetField(ref _selectedBooleanValue, value);
+    }
+
     private SpecNodeViewModel(string displayName, Type propertyType)
     {
         DisplayName = displayName;
-        IsLeaf = IsLeafType(propertyType);
-        IsEnum = propertyType.IsEnum;
+        var normalizedType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+        IsLeaf = IsLeafType(normalizedType);
+        IsEnum = normalizedType.IsEnum;
+        IsBoolean = normalizedType == typeof(bool);
         if (IsEnum)
-            EnumValues = Enum.GetValues(propertyType).Cast<object>().ToList();
+            EnumValues = Enum.GetValues(normalizedType).Cast<object>().ToList();
+        if (IsBoolean)
+            BooleanValues = [true, false];
     }
 
     private static bool IsLeafType(Type type) =>
@@ -67,6 +81,8 @@ public sealed class SpecNodeViewModel : INotifyPropertyChanged
             {
                 if (node.IsEnum)
                     node.SelectedEnumValue = value;
+                else if (node.IsBoolean && value is bool boolValue)
+                    node.SelectedBooleanValue = boolValue;
                 else
                     node.StringValue = value?.ToString() ?? string.Empty;
             }
@@ -97,6 +113,15 @@ public sealed class SpecNodeViewModel : INotifyPropertyChanged
                 if (node.IsEnum)
                 {
                     prop.SetValue(target, node.SelectedEnumValue);
+                }
+                else if (node.IsBoolean)
+                {
+                    if (node.SelectedBooleanValue is null)
+                    {
+                        throw new InvalidOperationException($"'{node.DisplayName}' 값이 비어있어.");
+                    }
+
+                    prop.SetValue(target, node.SelectedBooleanValue.Value);
                 }
                 else
                 {

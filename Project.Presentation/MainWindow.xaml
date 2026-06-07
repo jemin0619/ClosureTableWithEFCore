@@ -28,6 +28,11 @@
                           Width="200"
                           VerticalAlignment="Center"
                           Visibility="{Binding IsEnumLeaf, Converter={StaticResource BoolToVis}}"/>
+                <ComboBox ItemsSource="{Binding BooleanValues}"
+                          SelectedItem="{Binding SelectedBooleanValue}"
+                          Width="200"
+                          VerticalAlignment="Center"
+                          Visibility="{Binding IsBooleanLeaf, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
         </HierarchicalDataTemplate>
     </Window.Resources>
@@ -121,10 +126,18 @@
             </TreeView>
         </GroupBox>
 
-        <TextBlock Grid.Row="2"
-                   Margin="0,16,0,0"
-                   Foreground="DarkSlateBlue"
-                   TextWrapping="Wrap"
-                   Text="{Binding StatusMessage}"/>
+        <Border Grid.RowSpan="3"
+                Margin="0,0,0,16"
+                Padding="14,10"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                CornerRadius="10"
+                Background="{Binding ToastBackground}"
+                Visibility="{Binding IsToastVisible, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="{Binding ToastMessage}"
+                       Foreground="{Binding ToastForeground}"
+                       FontWeight="SemiBold"
+                       TextWrapping="Wrap"/>
+        </Border>
     </Grid>
 </Window>

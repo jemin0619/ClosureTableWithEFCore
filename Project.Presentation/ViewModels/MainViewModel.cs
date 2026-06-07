@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using System.Windows.Media;
 using Project.Application;
 using Project.Domain;
 using Project.Presentation.Commands;
@@ -15,9 +16,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _serialCode = string.Empty;
     private string? _selectedSerialForSave;
     private string? _selectedSerialForLoad;
-    private string _statusMessage = string.Empty;
+    private string _toastMessage = string.Empty;
+    private bool _isToastVisible;
+    private Brush _toastBackground = Brushes.SlateBlue;
+    private Brush _toastForeground = Brushes.White;
     private ObservableCollection<string> _serialCodes = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
+    private CancellationTokenSource? _toastCancellationTokenSource;
 
     public string SerialCode
     {
@@ -37,10 +42,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _selectedSerialForLoad, value);
     }
 
-    public string StatusMessage
+    public string ToastMessage
     {
-        get => _statusMessage;
-        set => SetField(ref _statusMessage, value);
+        get => _toastMessage;
+        set => SetField(ref _toastMessage, value);
+    }
+
+    public bool IsToastVisible
+    {
+        get => _isToastVisible;
+        set => SetField(ref _isToastVisible, value);
+    }
+
+    public Brush ToastBackground
+    {
+        get => _toastBackground;
+        set => SetField(ref _toastBackground, value);
+    }
+
+    public Brush ToastForeground
+    {
+        get => _toastForeground;
+        set => SetField(ref _toastForeground, value);
     }
 
     public ObservableCollection<string> SerialCodes
@@ -89,11 +112,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var spec = ReadSpecificationFromNodes();
             await _specificationService.SaveSpecificationAsync(serialCode, spec);
             await RefreshSerialsAsync(serialCode);
-            StatusMessage = $"{serialCode} 사양을 저장했어.";
+            ShowToast($"{serialCode} 사양을 저장했어.", ToastType.Success);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"저장 실패: {ex.Message}";
+            ShowToast($"저장 실패: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -105,11 +128,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var spec = ReadSpecificationFromNodes();
             await _specificationService.CreateSpecificationAsync(serialCode, spec);
             await RefreshSerialsAsync(serialCode);
-            StatusMessage = $"{serialCode} 사양을 신규 생성했어.";
+            ShowToast($"{serialCode} 사양을 신규 생성했어.", ToastType.Success);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"생성 실패: {ex.Message}";
+            ShowToast($"생성 실패: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -121,11 +144,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var spec = ReadSpecificationFromNodes();
             await _specificationService.UpdateSpecificationAsync(serialCode, spec);
             await RefreshSerialsAsync(serialCode);
-            StatusMessage = $"{serialCode} 사양을 수정했어.";
+            ShowToast($"{serialCode} 사양을 수정했어.", ToastType.Success);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"수정 실패: {ex.Message}";
+            ShowToast($"수정 실패: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -137,7 +160,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var deleted = await _specificationService.DeleteSpecificationAsync(serialCode);
             if (!deleted)
             {
-                StatusMessage = $"{serialCode} 사양을 찾지 못했어.";
+                ShowToast($"{serialCode} 사양을 찾지 못했어.", ToastType.Warning);
                 return;
             }
 
@@ -148,11 +171,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             await RefreshSerialsAsync();
-            StatusMessage = $"{serialCode} 사양을 삭제했어.";
+            ShowToast($"{serialCode} 사양을 삭제했어.", ToastType.Success);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"삭제 실패: {ex.Message}";
+            ShowToast($"삭제 실패: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -163,24 +186,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var serialCode = SelectedSerialForLoad;
             if (string.IsNullOrWhiteSpace(serialCode))
             {
-                StatusMessage = "불러올 Serial을 선택해줘.";
+                ShowToast("불러올 Serial을 선택해줘.", ToastType.Warning);
                 return;
             }
 
             var spec = await _specificationService.LoadSpecificationAsync<Specification>(serialCode);
             if (spec is null)
             {
-                StatusMessage = $"{serialCode} 사양을 찾지 못했어.";
+                ShowToast($"{serialCode} 사양을 찾지 못했어.", ToastType.Warning);
                 return;
             }
 
             SerialCode = serialCode;
             ResetSpecNodes(spec);
-            StatusMessage = $"{serialCode} 사양을 불러왔어.";
+            ShowToast($"{serialCode} 사양을 불러왔어.", ToastType.Info);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"불러오기 실패: {ex.Message}";
+            ShowToast($"불러오기 실패: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -200,11 +223,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedSerialForLoad = target;
 
             if (codeList.Count == 0)
-                StatusMessage = "저장된 Serial이 아직 없어.";
+                ShowToast("저장된 Serial이 아직 없어.", ToastType.Info);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"목록 조회 실패: {ex.Message}";
+            ShowToast($"목록 조회 실패: {ex.Message}", ToastType.Error);
         }
     }
 
@@ -226,6 +249,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return spec;
     }
 
+    private void ShowToast(string message, ToastType toastType)
+    {
+        ToastMessage = message;
+
+        switch (toastType)
+        {
+            case ToastType.Success:
+                ToastBackground = new SolidColorBrush(Color.FromRgb(34, 139, 34));
+                ToastForeground = Brushes.White;
+                break;
+            case ToastType.Warning:
+                ToastBackground = new SolidColorBrush(Color.FromRgb(245, 158, 11));
+                ToastForeground = Brushes.Black;
+                break;
+            case ToastType.Error:
+                ToastBackground = new SolidColorBrush(Color.FromRgb(220, 38, 38));
+                ToastForeground = Brushes.White;
+                break;
+            default:
+                ToastBackground = new SolidColorBrush(Color.FromRgb(37, 99, 235));
+                ToastForeground = Brushes.White;
+                break;
+        }
+
+        IsToastVisible = true;
+        _toastCancellationTokenSource?.Cancel();
+        _toastCancellationTokenSource?.Dispose();
+        _toastCancellationTokenSource = new CancellationTokenSource();
+        _ = HideToastAsync(_toastCancellationTokenSource.Token);
+    }
+
+    private async Task HideToastAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            IsToastVisible = false;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
@@ -234,4 +300,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+}
+
+public enum ToastType
+{
+    Info,
+    Success,
+    Warning,
+    Error
 }
