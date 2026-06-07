@@ -16,11 +16,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _serialCode = string.Empty;
     private string? _selectedSerialForSave;
     private string? _selectedSerialForLoad;
+    private string _loadSearchText = string.Empty;
     private string _toastMessage = string.Empty;
     private bool _isToastVisible;
     private Brush _toastBackground = Brushes.SlateBlue;
     private Brush _toastForeground = Brushes.White;
     private ObservableCollection<string> _serialCodes = [];
+    private ObservableCollection<string> _filteredSerialCodes = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
     private CancellationTokenSource? _toastCancellationTokenSource;
 
@@ -40,6 +42,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _selectedSerialForLoad;
         set => SetField(ref _selectedSerialForLoad, value);
+    }
+
+    public string LoadSearchText
+    {
+        get => _loadSearchText;
+        set
+        {
+            if (!SetField(ref _loadSearchText, value))
+            {
+                return;
+            }
+
+            ApplyLoadFilter();
+            SelectedSerialForLoad = null;
+        }
     }
 
     public string ToastMessage
@@ -70,6 +87,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _serialCodes;
         set => SetField(ref _serialCodes, value);
+    }
+
+    public ObservableCollection<string> FilteredSerialCodes
+    {
+        get => _filteredSerialCodes;
+        set => SetField(ref _filteredSerialCodes, value);
     }
 
     public ObservableCollection<SpecNodeViewModel> SpecNodes
@@ -184,9 +207,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             var serialCode = SelectedSerialForLoad;
-            if (string.IsNullOrWhiteSpace(serialCode))
+            if (string.IsNullOrWhiteSpace(serialCode) || !SerialCodes.Contains(serialCode))
             {
-                ShowToast("불러올 Serial을 선택해줘.", ToastType.Warning);
+                ShowToast("목록에서 불러올 Serial을 선택해줘.", ToastType.Warning);
                 return;
             }
 
@@ -220,6 +243,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : codeList.Count > 0 ? codeList[0] : null;
 
             SelectedSerialForSave = target;
+            LoadSearchText = string.Empty;
+            ApplyLoadFilter();
             SelectedSerialForLoad = target;
 
             if (codeList.Count == 0)
@@ -247,6 +272,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var spec = new Specification();
         SpecNodeViewModel.ApplyTo(SpecNodes, spec);
         return spec;
+    }
+
+    private void ApplyLoadFilter()
+    {
+        var keyword = LoadSearchText.Trim();
+        var filtered = string.IsNullOrWhiteSpace(keyword)
+            ? SerialCodes.ToList()
+            : SerialCodes
+                .Where(x => x.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        FilteredSerialCodes = new ObservableCollection<string>(filtered);
     }
 
     private void ShowToast(string message, ToastType toastType)
@@ -294,11 +331,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        return true;
     }
 }
 
