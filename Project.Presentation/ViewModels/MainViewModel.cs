@@ -19,8 +19,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _loadSearchText = string.Empty;
     private string _toastMessage = string.Empty;
     private bool _isToastVisible;
-    private Brush _toastBackground = new SolidColorBrush(Color.FromArgb(180, 37, 99, 235));
-    private Brush _toastForeground = Brushes.White;
+    private Brush _toastBackground = new SolidColorBrush(Color.FromRgb(207, 244, 252));
+    private Brush _toastForeground = new SolidColorBrush(Color.FromRgb(5, 81, 96));
+    private Brush _toastBorderBrush = new SolidColorBrush(Color.FromRgb(158, 234, 249));
     private ObservableCollection<string> _serialCodes = [];
     private ObservableCollection<string> _filteredSerialCodes = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
@@ -81,6 +82,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _toastForeground;
         set => SetField(ref _toastForeground, value);
+    }
+
+    public Brush ToastBorderBrush
+    {
+        get => _toastBorderBrush;
+        set => SetField(ref _toastBorderBrush, value);
     }
 
     public ObservableCollection<string> SerialCodes
@@ -315,21 +322,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var style = toastType switch
         {
             ToastKind.Success => new ToastStyle(
-                new SolidColorBrush(Color.FromArgb(180, 34, 139, 34)),
-                Brushes.White),
+                new SolidColorBrush(Color.FromRgb(209, 231, 221)),   // #d1e7dd
+                new SolidColorBrush(Color.FromRgb(15, 81, 50)),      // #0f5132
+                new SolidColorBrush(Color.FromRgb(163, 207, 187))),  // #a3cfbb
             ToastKind.Warning => new ToastStyle(
-                new SolidColorBrush(Color.FromArgb(180, 245, 158, 11)),
-                Brushes.Black),
+                new SolidColorBrush(Color.FromRgb(255, 243, 205)),   // #fff3cd
+                new SolidColorBrush(Color.FromRgb(102, 77, 3)),      // #664d03
+                new SolidColorBrush(Color.FromRgb(255, 230, 156))),  // #ffe69c
             ToastKind.Error => new ToastStyle(
-                new SolidColorBrush(Color.FromArgb(180, 220, 38, 38)),
-                Brushes.White),
+                new SolidColorBrush(Color.FromRgb(248, 215, 218)),   // #f8d7da
+                new SolidColorBrush(Color.FromRgb(132, 32, 41)),     // #842029
+                new SolidColorBrush(Color.FromRgb(241, 174, 181))),  // #f1aeb5
             _ => new ToastStyle(
-                new SolidColorBrush(Color.FromArgb(180, 37, 99, 235)),
-                Brushes.White)
+                new SolidColorBrush(Color.FromRgb(207, 244, 252)),   // #cff4fc
+                new SolidColorBrush(Color.FromRgb(5, 81, 96)),       // #055160
+                new SolidColorBrush(Color.FromRgb(158, 234, 249)))   // #9eeaf9
         };
 
         ToastBackground = style.Background;
         ToastForeground = style.Foreground;
+        ToastBorderBrush = style.BorderBrush;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -342,7 +354,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return true;
     }
 
-    private sealed record ToastStyle(Brush Background, Brush Foreground);
+    private sealed record ToastStyle(Brush Background, Brush Foreground, Brush BorderBrush);
 
     private enum ToastKind
     {

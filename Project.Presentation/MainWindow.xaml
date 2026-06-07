@@ -136,9 +136,15 @@
                 MaxWidth="520"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Bottom"
-                CornerRadius="10"
+                CornerRadius="6"
+                Opacity="0.92"
                 Background="{Binding ToastBackground}"
+                BorderBrush="{Binding ToastBorderBrush}"
+                BorderThickness="1"
                 Visibility="{Binding IsToastVisible, Converter={StaticResource BoolToVis}}">
+            <Border.Effect>
+                <DropShadowEffect Color="#000000" Opacity="0.18" BlurRadius="12" ShadowDepth="2" Direction="270"/>
+            </Border.Effect>
             <TextBlock Text="{Binding ToastMessage}"
                        Foreground="{Binding ToastForeground}"
                        HorizontalAlignment="Center"
