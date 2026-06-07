@@ -132,14 +132,17 @@
 
         <Border Grid.RowSpan="3"
                 Margin="0,0,0,16"
-                Padding="14,10"
-                HorizontalAlignment="Right"
+                Padding="16,10"
+                MaxWidth="520"
+                HorizontalAlignment="Center"
                 VerticalAlignment="Bottom"
                 CornerRadius="10"
                 Background="{Binding ToastBackground}"
                 Visibility="{Binding IsToastVisible, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="{Binding ToastMessage}"
                        Foreground="{Binding ToastForeground}"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
                        FontWeight="SemiBold"
                        TextWrapping="Wrap"/>
         </Border>
