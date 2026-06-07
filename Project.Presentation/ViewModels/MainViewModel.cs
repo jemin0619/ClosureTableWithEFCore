@@ -56,6 +56,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public ICommand SaveCommand { get; }
+    public ICommand CreateCommand { get; }
+    public ICommand UpdateCommand { get; }
+    public ICommand DeleteCommand { get; }
     public ICommand LoadCommand { get; }
     public ICommand RefreshCommand { get; }
 
@@ -63,6 +66,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _specificationService = specificationService;
         SaveCommand = new AsyncRelayCommand(SaveAsync);
+        CreateCommand = new AsyncRelayCommand(CreateAsync);
+        UpdateCommand = new AsyncRelayCommand(UpdateAsync);
+        DeleteCommand = new AsyncRelayCommand(DeleteAsync);
         LoadCommand = new AsyncRelayCommand(LoadAsync);
         RefreshCommand = new AsyncRelayCommand(() => RefreshSerialsAsync());
         ResetSpecNodes(new Specification());
@@ -79,16 +85,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            var serialCode = SerialCode.Trim();
-            if (string.IsNullOrWhiteSpace(serialCode))
-            {
-                StatusMessage = "Serial Code를 입력해줘.";
-                return;
-            }
-
-            var spec = new Specification();
-            SpecNodeViewModel.ApplyTo(SpecNodes, spec);
-
+            var serialCode = ValidateSerialCode();
+            var spec = ReadSpecificationFromNodes();
             await _specificationService.SaveSpecificationAsync(serialCode, spec);
             await RefreshSerialsAsync(serialCode);
             StatusMessage = $"{serialCode} 사양을 저장했어.";
@@ -96,6 +94,65 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             StatusMessage = $"저장 실패: {ex.Message}";
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            var serialCode = ValidateSerialCode();
+            var spec = ReadSpecificationFromNodes();
+            await _specificationService.CreateSpecificationAsync(serialCode, spec);
+            await RefreshSerialsAsync(serialCode);
+            StatusMessage = $"{serialCode} 사양을 신규 생성했어.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"생성 실패: {ex.Message}";
+        }
+    }
+
+    private async Task UpdateAsync()
+    {
+        try
+        {
+            var serialCode = ValidateSerialCode();
+            var spec = ReadSpecificationFromNodes();
+            await _specificationService.UpdateSpecificationAsync(serialCode, spec);
+            await RefreshSerialsAsync(serialCode);
+            StatusMessage = $"{serialCode} 사양을 수정했어.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"수정 실패: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        try
+        {
+            var serialCode = ValidateSerialCode();
+            var deleted = await _specificationService.DeleteSpecificationAsync(serialCode);
+            if (!deleted)
+            {
+                StatusMessage = $"{serialCode} 사양을 찾지 못했어.";
+                return;
+            }
+
+            if (SelectedSerialForSave == serialCode)
+            {
+                SerialCode = string.Empty;
+                ResetSpecNodes(new Specification());
+            }
+
+            await RefreshSerialsAsync();
+            StatusMessage = $"{serialCode} 사양을 삭제했어.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"삭제 실패: {ex.Message}";
         }
     }
 
@@ -149,6 +206,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             StatusMessage = $"목록 조회 실패: {ex.Message}";
         }
+    }
+
+    private string ValidateSerialCode()
+    {
+        var serialCode = SerialCode.Trim();
+        if (string.IsNullOrWhiteSpace(serialCode))
+        {
+            throw new InvalidOperationException("Serial Code를 입력해줘.");
+        }
+
+        return serialCode;
+    }
+
+    private Specification ReadSpecificationFromNodes()
+    {
+        var spec = new Specification();
+        SpecNodeViewModel.ApplyTo(SpecNodes, spec);
+        return spec;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

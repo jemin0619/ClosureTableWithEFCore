@@ -69,8 +69,11 @@
                               SelectedItem="{Binding SelectedSerialForSave}"/>
 
                     <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left">
-                        <Button Width="100" Margin="0,0,8,0" Command="{Binding SaveCommand}">Save</Button>
-                        <Button Width="100" Command="{Binding RefreshCommand}">Refresh List</Button>
+                        <Button Width="80" Margin="0,0,8,0" Command="{Binding CreateCommand}">Create</Button>
+                        <Button Width="80" Margin="0,0,8,0" Command="{Binding UpdateCommand}">Update</Button>
+                        <Button Width="80" Margin="0,0,8,0" Command="{Binding SaveCommand}">Save</Button>
+                        <Button Width="80" Margin="0,0,8,0" Command="{Binding DeleteCommand}">Delete</Button>
+                        <Button Width="96" Command="{Binding RefreshCommand}">Refresh List</Button>
                     </StackPanel>
                 </Grid>
             </GroupBox>
@@ -104,6 +107,15 @@
                     <Style TargetType="TreeViewItem">
                         <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                         <Setter Property="Padding" Value="2"/>
+                        <Setter Property="Focusable" Value="False"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderBrush" Value="Transparent"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                            </Trigger>
+                        </Style.Triggers>
                     </Style>
                 </TreeView.ItemContainerStyle>
             </TreeView>

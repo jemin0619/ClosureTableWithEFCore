@@ -9,6 +9,24 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
     private readonly SpecDbContext _dbContext = dbContext;
     private readonly SpecificationTreeMapper _treeMapper = treeMapper;
 
+    public async Task CreateAsync<TSpecification>(string serialCode, TSpecification specification, CancellationToken cancellationToken = default)
+        where TSpecification : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serialCode);
+        ArgumentNullException.ThrowIfNull(specification);
+
+        var exists = await _dbContext.SpecSerialRoots
+            .AsNoTracking()
+            .AnyAsync(x => x.SerialCode == serialCode, cancellationToken);
+
+        if (exists)
+        {
+            throw new InvalidOperationException($"{serialCode} 사양은 이미 존재해.");
+        }
+
+        await InsertNewTreeForSerialAsync(serialCode, specification, cancellationToken);
+    }
+
     public async Task SaveAsync<TSpecification>(string serialCode, TSpecification specification, CancellationToken cancellationToken = default)
         where TSpecification : class
     {
@@ -23,21 +41,38 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
 
         if (existingRoot is not null)
         {
-            await DeleteSubtreeAsync(existingRoot.RootNodeId, cancellationToken);
+            var oldRootNodeId = existingRoot.RootNodeId;
             _dbContext.SpecSerialRoots.Remove(existingRoot);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            await DeleteSubtreeAsync(oldRootNodeId, cancellationToken);
         }
 
-        var tree = _treeMapper.ToTree(specification);
-        var rootNodeId = await InsertNodeRecursiveAsync(tree, null, cancellationToken);
+        await InsertNewTreeForSerialAsync(serialCode, specification, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
 
-        _dbContext.SpecSerialRoots.Add(new SpecSerialRootEntity
+    public async Task UpdateAsync<TSpecification>(string serialCode, TSpecification specification, CancellationToken cancellationToken = default)
+        where TSpecification : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serialCode);
+        ArgumentNullException.ThrowIfNull(specification);
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var existingRoot = await _dbContext.SpecSerialRoots
+            .AsTracking()
+            .SingleOrDefaultAsync(x => x.SerialCode == serialCode, cancellationToken);
+
+        if (existingRoot is null)
         {
-            SerialCode = serialCode,
-            RootNodeId = rootNodeId
-        });
+            throw new InvalidOperationException($"{serialCode} 사양이 없어서 수정할 수 없어.");
+        }
 
+        var oldRootNodeId = existingRoot.RootNodeId;
+        _dbContext.SpecSerialRoots.Remove(existingRoot);
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await DeleteSubtreeAsync(oldRootNodeId, cancellationToken);
+        await InsertNewTreeForSerialAsync(serialCode, specification, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -88,6 +123,41 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
             .OrderBy(x => x.SerialCode)
             .Select(x => x.SerialCode)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(string serialCode, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serialCode);
+
+        var existingRoot = await _dbContext.SpecSerialRoots
+            .AsTracking()
+            .SingleOrDefaultAsync(x => x.SerialCode == serialCode, cancellationToken);
+
+        if (existingRoot is null)
+        {
+            return false;
+        }
+
+        var oldRootNodeId = existingRoot.RootNodeId;
+        _dbContext.SpecSerialRoots.Remove(existingRoot);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await DeleteSubtreeAsync(oldRootNodeId, cancellationToken);
+        return true;
+    }
+
+    private async Task InsertNewTreeForSerialAsync<TSpecification>(string serialCode, TSpecification specification, CancellationToken cancellationToken)
+        where TSpecification : class
+    {
+        var tree = _treeMapper.ToTree(specification);
+        var rootNodeId = await InsertNodeRecursiveAsync(tree, null, cancellationToken);
+
+        _dbContext.SpecSerialRoots.Add(new SpecSerialRootEntity
+        {
+            SerialCode = serialCode,
+            RootNodeId = rootNodeId
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task DeleteSubtreeAsync(int rootNodeId, CancellationToken cancellationToken)
