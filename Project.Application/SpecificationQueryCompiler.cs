@@ -1,10 +1,16 @@
 using System.Globalization;
 using System.Reflection;
+using System.Collections.Concurrent;
 
 namespace Project.Application;
 
 internal static class SpecificationQueryCompiler
 {
+    private static readonly ConcurrentDictionary<Type, IReadOnlyList<string>> QueryablePathCache = new();
+    private static readonly ConcurrentDictionary<string, string[]> PathSegmentCache = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<Type, PropertyInfo[]> ReadablePropertiesCache = new();
+    private static readonly ConcurrentDictionary<(Type Type, string Segment), PropertyInfo[]> SegmentCandidateCache = new();
+
     private static readonly IReadOnlySet<Type> LeafTypes = new HashSet<Type>
     {
         typeof(string),
@@ -34,9 +40,12 @@ internal static class SpecificationQueryCompiler
     public static IReadOnlyList<string> GetQueryablePaths<TSpecification>()
         where TSpecification : class
     {
-        var paths = new List<string>();
-        CollectPaths(typeof(TSpecification), null, paths);
-        return paths;
+        return QueryablePathCache.GetOrAdd(typeof(TSpecification), static type =>
+        {
+            var paths = new List<string>();
+            CollectPaths(type, null, paths);
+            return paths;
+        });
     }
 
     private static void CollectPaths(Type type, string? prefix, List<string> destination)
@@ -112,7 +121,8 @@ internal static class SpecificationQueryCompiler
 
     private static object? ResolvePathValue(object root, string path)
     {
-        var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var segments = PathSegmentCache.GetOrAdd(path, static key =>
+            key.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         if (segments.Length == 0)
         {
             throw new InvalidOperationException("경로가 비어있어.");
@@ -145,27 +155,14 @@ internal static class SpecificationQueryCompiler
         }
 
         var segment = segments[segmentIndex];
-        var properties = current.GetType()
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(x => x.CanRead)
-            .ToArray();
+        var candidates = GetSegmentCandidates(current.GetType(), segment);
 
-        var exact = properties
-            .Where(x => string.Equals(x.Name, segment, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var candidates = exact.Count > 0
-            ? exact
-            : properties
-                .Where(x => x.Name.StartsWith(segment, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-        if (candidates.Count == 0)
+        if (candidates.Length == 0)
         {
             return PathResolutionResult.NotFound();
         }
 
-        if (candidates.Count == 1)
+        if (candidates.Length == 1)
         {
             var value = candidates[0].GetValue(current);
             return ResolvePathRecursive(value, segments, segmentIndex + 1);
@@ -189,6 +186,35 @@ internal static class SpecificationQueryCompiler
         }
 
         return resolved ?? PathResolutionResult.NotFound();
+    }
+
+    private static PropertyInfo[] GetSegmentCandidates(Type type, string segment)
+    {
+        return SegmentCandidateCache.GetOrAdd((type, segment), static key =>
+        {
+            var properties = GetReadableProperties(key.Type);
+            var exact = properties
+                .Where(x => string.Equals(x.Name, key.Segment, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            if (exact.Length > 0)
+            {
+                return exact;
+            }
+
+            return properties
+                .Where(x => x.Name.StartsWith(key.Segment, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        });
+    }
+
+    private static PropertyInfo[] GetReadableProperties(Type type)
+    {
+        return ReadablePropertiesCache.GetOrAdd(type, static currentType =>
+            currentType
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(x => x.CanRead)
+                .ToArray());
     }
 
     private static int CompareValues(object? left, object? right)
