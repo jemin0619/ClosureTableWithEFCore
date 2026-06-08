@@ -77,15 +77,17 @@
                     </DataGrid.Columns>
                     <DataGrid.RowStyle>
                         <Style TargetType="DataGridRow">
+                            <Setter Property="Tag"
+                                    Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
                             <Setter Property="ContextMenu">
                                 <Setter.Value>
                                     <ContextMenu>
                                         <MenuItem Header="수정"
-                                                  Command="{Binding Source={x:Reference CandidateGrid}, Path=DataContext.StartEditCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  Command="{Binding PlacementTarget.Tag.StartEditCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                         <MenuItem Header="삭제"
-                                                  Command="{Binding Source={x:Reference CandidateGrid}, Path=DataContext.DeleteCandidateCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  Command="{Binding PlacementTarget.Tag.DeleteCandidateCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                     </ContextMenu>
                                 </Setter.Value>
                             </Setter>
