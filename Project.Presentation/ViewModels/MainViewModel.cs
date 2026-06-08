@@ -121,6 +121,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ClearCommand { get; }
     public ICommand StartEditCommand { get; }
     public ICommand DeleteCandidateCommand { get; }
+    public ICommand CopyCandidateCommand { get; }
 
     public MainViewModel(ISpecificationService specificationService)
     {
@@ -129,6 +130,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearCommand = new AsyncRelayCommand(ClearAsync);
         StartEditCommand = new AsyncRelayCommand<string>(StartEditAsync);
         DeleteCandidateCommand = new AsyncRelayCommand<string>(DeleteCandidateAsync);
+        CopyCandidateCommand = new AsyncRelayCommand<string>(CopyCandidateAsync);
         ResetSpecNodes(new Specification());
     }
 
@@ -242,6 +244,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             ShowToast($"삭제 실패: {ex.Message}", ToastKind.Error);
+        }
+    }
+
+    private async Task CopyCandidateAsync(string? serialCode)
+    {
+        try
+        {
+            serialCode = string.IsNullOrWhiteSpace(serialCode) ? SelectedCandidate : serialCode;
+            if (string.IsNullOrWhiteSpace(serialCode) || !SerialCodes.Contains(serialCode))
+            {
+                ShowToast("복사할 식별자를 선택해줘.", ToastKind.Warning);
+                return;
+            }
+
+            var spec = await _specificationService.LoadSpecificationAsync<Specification>(serialCode);
+            if (spec is null)
+            {
+                ShowToast($"{serialCode} 사양을 찾지 못했어.", ToastKind.Warning);
+                return;
+            }
+
+            ExitEditMode();
+            SelectedCandidate = serialCode;
+            SearchText = string.Empty;
+            ResetSpecNodes(spec);
+            ShowToast($"{serialCode} 사양을 복사해서 Create 모드로 가져왔어.", ToastKind.Info);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"복사 실패: {ex.Message}", ToastKind.Error);
         }
     }
 
