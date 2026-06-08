@@ -35,6 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private IReadOnlyList<string>? _queryFilteredSerialCodes;
     private CancellationTokenSource? _toastCancellationTokenSource;
     private static readonly Regex QueryFragmentRegex = new(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled);
+    private static readonly Regex IdentifierSuggestionRegex = new(@"^[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled);
 
     public string SearchText
     {
@@ -387,12 +388,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        var match = QueryFragmentRegex.Match(DetailQueryText);
-        DetailQueryText = match.Success
-            ? QueryFragmentRegex.Replace(DetailQueryText, suggestion, 1)
-            : string.IsNullOrWhiteSpace(DetailQueryText)
-                ? suggestion
-                : $"{DetailQueryText}{suggestion}";
+        if (IdentifierSuggestionRegex.IsMatch(suggestion))
+        {
+            var match = QueryFragmentRegex.Match(DetailQueryText);
+            DetailQueryText = match.Success
+                ? QueryFragmentRegex.Replace(DetailQueryText, suggestion, 1)
+                : string.IsNullOrWhiteSpace(DetailQueryText)
+                    ? suggestion
+                    : $"{DetailQueryText}{suggestion}";
+        }
+        else
+        {
+            DetailQueryText = string.IsNullOrWhiteSpace(DetailQueryText)
+                ? suggestion.Trim()
+                : $"{DetailQueryText.TrimEnd()}{suggestion}";
+        }
 
         QueryPathSuggestions = [];
         IsQuerySuggestionVisible = false;

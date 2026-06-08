@@ -12,6 +12,8 @@ internal static partial class SpecificationQueryCompiler
     private static readonly ConcurrentDictionary<string, string[]> PathSegmentCache = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> ReadablePropertiesCache = new();
     private static readonly ConcurrentDictionary<(Type Type, string Segment), PropertyInfo[]> SegmentCandidateCache = new();
+    private static readonly string[] ComparisonOperatorSuggestions = [" == ", " > ", " < "];
+    private static readonly string[] LogicalOperatorSuggestions = [" && ", " || "];
 
     private static readonly IReadOnlySet<Type> LeafTypes = new HashSet<Type>
     {
@@ -55,19 +57,30 @@ internal static partial class SpecificationQueryCompiler
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSuggestionCount);
 
+        if (TryGetComparisonOperatorSuggestions<TSpecification>(queryText, out var comparisonOperatorSuggestions))
+        {
+            return comparisonOperatorSuggestions;
+        }
+
         if (TryGetEnumSuggestions(typeof(TSpecification), queryText, maxSuggestionCount, out var enumSuggestions))
         {
             return enumSuggestions;
         }
 
+        if (TryGetLogicalOperatorSuggestions(queryText, out var logicalOperatorSuggestions))
+        {
+            return logicalOperatorSuggestions;
+        }
+
         var fragment = GetCurrentIdentifierFragment(queryText);
-        if (string.IsNullOrWhiteSpace(fragment))
+        if (string.IsNullOrWhiteSpace(fragment) && !IsExpectingPathSuggestion(queryText))
         {
             return [];
         }
 
         return GetQueryablePaths<TSpecification>()
-            .Where(x => x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase)
+            .Where(x => string.IsNullOrWhiteSpace(fragment)
+                        || x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase)
                         || x.Contains($".{fragment}", StringComparison.OrdinalIgnoreCase))
             .Take(maxSuggestionCount)
             .ToList();
@@ -300,6 +313,43 @@ internal static partial class SpecificationQueryCompiler
         return suggestions.Count > 0;
     }
 
+    private static bool TryGetComparisonOperatorSuggestions<TSpecification>(string queryText, out IReadOnlyList<string> suggestions)
+        where TSpecification : class
+    {
+        suggestions = [];
+        var fragment = GetCurrentIdentifierFragment(queryText);
+        if (string.IsNullOrWhiteSpace(fragment))
+        {
+            return false;
+        }
+
+        if (!GetQueryablePaths<TSpecification>().Contains(fragment, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var trimmed = queryText.TrimEnd();
+        if (!trimmed.EndsWith(fragment, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        suggestions = ComparisonOperatorSuggestions;
+        return true;
+    }
+
+    private static bool TryGetLogicalOperatorSuggestions(string queryText, out IReadOnlyList<string> suggestions)
+    {
+        suggestions = [];
+        if (!CompletedExpressionRegex().IsMatch(queryText))
+        {
+            return false;
+        }
+
+        suggestions = LogicalOperatorSuggestions;
+        return true;
+    }
+
     private static IReadOnlyDictionary<string, IReadOnlyList<string>> BuildEnumPathValueMap(Type rootType)
     {
         var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
@@ -343,6 +393,20 @@ internal static partial class SpecificationQueryCompiler
 
         var match = QueryFragmentRegex().Match(text);
         return match.Success ? match.Value : null;
+    }
+
+    private static bool IsExpectingPathSuggestion(string queryText)
+    {
+        var trimmed = queryText.TrimEnd();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return true;
+        }
+
+        return trimmed.EndsWith("&&", StringComparison.Ordinal)
+               || trimmed.EndsWith("||", StringComparison.Ordinal)
+               || trimmed.EndsWith("!", StringComparison.Ordinal)
+               || trimmed.EndsWith("(", StringComparison.Ordinal);
     }
 
     private static int CompareValues(object? left, object? right)
@@ -447,6 +511,9 @@ internal static partial class SpecificationQueryCompiler
 
     [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled)]
     private static partial Regex QueryFragmentRegex();
+
+    [GeneratedRegex(@"(?:[A-Za-z_][A-Za-z0-9_]*|-?\d+(?:\.\d+)?|true|false|""[^""]*""|'[^']*'|\))\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex CompletedExpressionRegex();
 
     private readonly record struct PathResolutionResult(PathResolutionStatus Status, object? Value)
     {
