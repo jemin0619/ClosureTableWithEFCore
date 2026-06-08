@@ -5,14 +5,13 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Project.Presentation.ViewModels"
         mc:Ignorable="d"
-        Title="Specification Save / Load"
+        Title="Specification Editor"
         Height="600"
         Width="820"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- Recursive tree template: inner nodes expand into Children, leaf nodes show an input control -->
         <HierarchicalDataTemplate DataType="{x:Type vm:SpecNodeViewModel}"
                                   ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Margin="0,2">
@@ -39,98 +38,90 @@
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="220"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Save / Load panels -->
-        <Grid Grid.Row="0" Margin="0,0,0,16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <GroupBox Grid.Row="0" Header="식별자 검색" Padding="12" Margin="0,0,0,12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
 
-            <GroupBox Header="Save" Padding="12">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                <TextBox Grid.Row="0" Margin="0,0,0,8"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Serial Code"/>
-                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
-                             Text="{Binding SerialCode, UpdateSourceTrigger=PropertyChanged}"/>
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Saved Serials"/>
-                    <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"
-                              ItemsSource="{Binding SerialCodes}"
-                              SelectedItem="{Binding SelectedSerialForSave}"/>
-
-                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left">
-                        <Button Width="80" Margin="0,0,8,0" Command="{Binding CreateCommand}">Create</Button>
-                        <Button Width="80" Margin="0,0,8,0" Command="{Binding UpdateCommand}">Update</Button>
-                        <Button Width="80" Margin="0,0,8,0" Command="{Binding SaveCommand}">Save</Button>
-                        <Button Width="80" Margin="0,0,8,0" Command="{Binding DeleteCommand}">Delete</Button>
-                        <Button Width="96" Command="{Binding RefreshCommand}">Refresh List</Button>
-                    </StackPanel>
-                </Grid>
-            </GroupBox>
-
-            <GroupBox Grid.Column="2" Header="Load" Padding="12">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="120"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Search Serial"/>
-                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
-                             Text="{Binding LoadSearchText, UpdateSourceTrigger=PropertyChanged}"/>
-
-                    <ListBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"
-                             ItemsSource="{Binding FilteredSerialCodes}"
-                             SelectedItem="{Binding SelectedSerialForLoad, Mode=TwoWay}"/>
-
-                    <Button Grid.Row="2" Grid.Column="1" Width="100" HorizontalAlignment="Left"
-                            Command="{Binding LoadCommand}">Load</Button>
-                </Grid>
-            </GroupBox>
-        </Grid>
-
-        <!-- Specification tree (all nodes expanded by default, collapsible) -->
-        <GroupBox Grid.Row="1" Header="Specification" Padding="12">
-            <TreeView ItemsSource="{Binding SpecNodes}" BorderThickness="0">
-                <TreeView.ItemContainerStyle>
-                    <Style TargetType="TreeViewItem">
-                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                        <Setter Property="Padding" Value="2"/>
-                        <Setter Property="Focusable" Value="False"/>
-                        <Setter Property="Background" Value="Transparent"/>
-                        <Setter Property="BorderBrush" Value="Transparent"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="Transparent"/>
-                                <Setter Property="BorderBrush" Value="Transparent"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </TreeView.ItemContainerStyle>
-            </TreeView>
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding CandidateSerialCodes}"
+                         SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="ContextMenu">
+                                <Setter.Value>
+                                    <ContextMenu>
+                                        <MenuItem Header="수정"
+                                                  Command="{Binding PlacementTarget.DataContext.StartEditCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding}"/>
+                                        <MenuItem Header="삭제"
+                                                  Command="{Binding PlacementTarget.DataContext.DeleteCandidateCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding}"/>
+                                    </ContextMenu>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+            </Grid>
         </GroupBox>
 
-        <Border Grid.RowSpan="3"
+        <GroupBox Grid.Row="1" Header="Specification" Padding="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock VerticalAlignment="Center" FontWeight="SemiBold"
+                               Text="{Binding TargetSerialLabel, StringFormat=대상 식별자: {0}}"/>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Width="110" Margin="0,0,8,0"
+                                Command="{Binding PrimaryActionCommand}"
+                                Content="{Binding PrimaryActionButtonText}"/>
+                        <Button Width="80"
+                                Command="{Binding ClearCommand}"
+                                Content="Clear"/>
+                    </StackPanel>
+                </Grid>
+
+                <TreeView Grid.Row="1" ItemsSource="{Binding SpecNodes}" BorderThickness="0">
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            <Setter Property="Padding" Value="2"/>
+                            <Setter Property="Focusable" Value="False"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderBrush" Value="Transparent"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                </TreeView>
+            </Grid>
+        </GroupBox>
+
+        <Border Grid.RowSpan="2"
                 Margin="0,0,0,16"
                 Padding="16,10"
                 MaxWidth="520"
