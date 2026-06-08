@@ -86,6 +86,7 @@
                                                    HorizontalContentAlignment="Left"
                                                    Background="Transparent"
                                                    BorderThickness="0"
+                                                   Content="{Binding}"
                                                    Command="{Binding DataContext.ApplyQuerySuggestionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                    CommandParameter="{Binding}">
                                                <Button.Template>

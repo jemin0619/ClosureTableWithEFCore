@@ -12,7 +12,7 @@ internal static partial class SpecificationQueryCompiler
     private static readonly ConcurrentDictionary<string, string[]> PathSegmentCache = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> ReadablePropertiesCache = new();
     private static readonly ConcurrentDictionary<(Type Type, string Segment), PropertyInfo[]> SegmentCandidateCache = new();
-    private static readonly string[] ComparisonOperatorSuggestions = [" == ", " > ", " < "];
+    private static readonly string[] ComparisonOperatorSuggestions = [" == ", " >= ", " <= ", " > ", " < "];
     private static readonly string[] LogicalOperatorSuggestions = [" && ", " || "];
 
     private static readonly IReadOnlySet<Type> LeafTypes = new HashSet<Type>
@@ -141,7 +141,9 @@ internal static partial class SpecificationQueryCompiler
         return node.Operator switch
         {
             ComparisonOperator.Equal => comparisonResult == 0,
+            ComparisonOperator.GreaterThanOrEqual => comparisonResult >= 0,
             ComparisonOperator.GreaterThan => comparisonResult > 0,
+            ComparisonOperator.LessThanOrEqual => comparisonResult <= 0,
             ComparisonOperator.LessThan => comparisonResult < 0,
             _ => throw new InvalidOperationException("Unknown comparison operator.")
         };
@@ -506,7 +508,7 @@ internal static partial class SpecificationQueryCompiler
         return type.IsEnum || LeafTypes.Contains(type);
     }
 
-    [GeneratedRegex(@"(?<path>[A-Za-z_][A-Za-z0-9_.]*)\s*(==|=|>|<)\s*(?<fragment>[A-Za-z_][A-Za-z0-9_]*)?\s*$", RegexOptions.Compiled)]
+    [GeneratedRegex(@"(?<path>[A-Za-z_][A-Za-z0-9_.]*)\s*(==|=|>=|<=|>|<)\s*(?<fragment>[A-Za-z_][A-Za-z0-9_]*)?\s*$", RegexOptions.Compiled)]
     private static partial Regex EnumSuggestionContextRegex();
 
     [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled)]
@@ -605,7 +607,9 @@ internal static partial class SpecificationQueryCompiler
             return new ComparisonNode(left, right, comparisonOperatorToken.Type switch
             {
                 TokenType.Equal => ComparisonOperator.Equal,
+                TokenType.GreaterThanOrEqual => ComparisonOperator.GreaterThanOrEqual,
                 TokenType.GreaterThan => ComparisonOperator.GreaterThan,
+                TokenType.LessThanOrEqual => ComparisonOperator.LessThanOrEqual,
                 TokenType.LessThan => ComparisonOperator.LessThan,
                 _ => throw new InvalidOperationException("Unknown comparison operator.")
             });
@@ -626,7 +630,11 @@ internal static partial class SpecificationQueryCompiler
 
         private bool CurrentIsComparison()
         {
-            return Peek().Type is TokenType.Equal or TokenType.GreaterThan or TokenType.LessThan;
+            return Peek().Type is TokenType.Equal
+                or TokenType.GreaterThan
+                or TokenType.GreaterThanOrEqual
+                or TokenType.LessThan
+                or TokenType.LessThanOrEqual;
         }
 
         private bool Match(TokenType tokenType)
@@ -700,12 +708,30 @@ internal static partial class SpecificationQueryCompiler
                         index++;
                         continue;
                     case '>':
-                        tokens.Add(new Token(TokenType.GreaterThan, ">"));
-                        index++;
+                        if (index + 1 < query.Length && query[index + 1] == '=')
+                        {
+                            tokens.Add(new Token(TokenType.GreaterThanOrEqual, ">="));
+                            index += 2;
+                        }
+                        else
+                        {
+                            tokens.Add(new Token(TokenType.GreaterThan, ">"));
+                            index++;
+                        }
+
                         continue;
                     case '<':
-                        tokens.Add(new Token(TokenType.LessThan, "<"));
-                        index++;
+                        if (index + 1 < query.Length && query[index + 1] == '=')
+                        {
+                            tokens.Add(new Token(TokenType.LessThanOrEqual, "<="));
+                            index += 2;
+                        }
+                        else
+                        {
+                            tokens.Add(new Token(TokenType.LessThan, "<"));
+                            index++;
+                        }
+
                         continue;
                     case '=':
                         if (index + 1 < query.Length && query[index + 1] == '=')
@@ -845,7 +871,9 @@ internal static partial class SpecificationQueryCompiler
         Boolean,
         Equal,
         GreaterThan,
+        GreaterThanOrEqual,
         LessThan,
+        LessThanOrEqual,
         And,
         Or,
         Not,
@@ -866,7 +894,9 @@ internal static partial class SpecificationQueryCompiler
     {
         Equal,
         GreaterThan,
-        LessThan
+        GreaterThanOrEqual,
+        LessThan,
+        LessThanOrEqual
     }
 
     private enum LogicalOperator
