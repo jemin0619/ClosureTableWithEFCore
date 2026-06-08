@@ -1,12 +1,14 @@
 using System.Globalization;
 using System.Reflection;
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 
 namespace Project.Application;
 
-internal static class SpecificationQueryCompiler
+internal static partial class SpecificationQueryCompiler
 {
     private static readonly ConcurrentDictionary<Type, IReadOnlyList<string>> QueryablePathCache = new();
+    private static readonly ConcurrentDictionary<Type, IReadOnlyDictionary<string, IReadOnlyList<string>>> EnumPathValueCache = new();
     private static readonly ConcurrentDictionary<string, string[]> PathSegmentCache = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> ReadablePropertiesCache = new();
     private static readonly ConcurrentDictionary<(Type Type, string Segment), PropertyInfo[]> SegmentCandidateCache = new();
@@ -46,6 +48,29 @@ internal static class SpecificationQueryCompiler
             CollectPaths(type, null, paths);
             return paths;
         });
+    }
+
+    public static IReadOnlyList<string> GetQuerySuggestions<TSpecification>(string queryText, int maxSuggestionCount = 12)
+        where TSpecification : class
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSuggestionCount);
+
+        if (TryGetEnumSuggestions(typeof(TSpecification), queryText, maxSuggestionCount, out var enumSuggestions))
+        {
+            return enumSuggestions;
+        }
+
+        var fragment = GetCurrentIdentifierFragment(queryText);
+        if (string.IsNullOrWhiteSpace(fragment))
+        {
+            return [];
+        }
+
+        return GetQueryablePaths<TSpecification>()
+            .Where(x => x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase)
+                        || x.Contains($".{fragment}", StringComparison.OrdinalIgnoreCase))
+            .Take(maxSuggestionCount)
+            .ToList();
     }
 
     private static void CollectPaths(Type type, string? prefix, List<string> destination)
@@ -97,7 +122,7 @@ internal static class SpecificationQueryCompiler
     private static bool EvaluateComparison(ComparisonNode node, object specification)
     {
         var left = EvaluateOperand(node.Left, specification);
-        var right = EvaluateOperand(node.Right, specification);
+        var right = EvaluateOperand(node.Right, specification, left?.GetType().IsEnum == true ? left.GetType() : null);
         var comparisonResult = CompareValues(left, right);
 
         return node.Operator switch
@@ -109,14 +134,35 @@ internal static class SpecificationQueryCompiler
         };
     }
 
-    private static object? EvaluateOperand(OperandNode node, object specification)
+    private static object? EvaluateOperand(OperandNode node, object specification, Type? expectedEnumType = null)
     {
         return node switch
         {
             LiteralOperandNode literalNode => literalNode.Value,
-            PathOperandNode pathNode => ResolvePathValue(specification, pathNode.Path),
+            PathOperandNode pathNode => ResolveComparisonPathOperand(specification, pathNode.Path, expectedEnumType),
             _ => throw new InvalidOperationException("Unsupported operand node.")
         };
+    }
+
+    private static object? ResolveComparisonPathOperand(object root, string path, Type? expectedEnumType)
+    {
+        var resolution = ResolvePath(root, path);
+        if (resolution.Status == PathResolutionStatus.Success)
+        {
+            return resolution.Value;
+        }
+
+        if (expectedEnumType?.IsEnum == true && !path.Contains('.', StringComparison.Ordinal))
+        {
+            return path;
+        }
+
+        if (resolution.Status == PathResolutionStatus.Ambiguous)
+        {
+            throw new InvalidOperationException($"'{path}' 경로가 모호해.");
+        }
+
+        throw new InvalidOperationException($"'{path}' 경로를 찾을 수 없어.");
     }
 
     private static object? ResolvePathValue(object root, string path)
@@ -140,6 +186,18 @@ internal static class SpecificationQueryCompiler
         }
 
         throw new InvalidOperationException($"'{path}' 경로를 찾을 수 없어.");
+    }
+
+    private static PathResolutionResult ResolvePath(object root, string path)
+    {
+        var segments = PathSegmentCache.GetOrAdd(path, static key =>
+            key.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        if (segments.Length == 0)
+        {
+            throw new InvalidOperationException("경로가 비어있어.");
+        }
+
+        return ResolvePathRecursive(root, segments, 0);
     }
 
     private static PathResolutionResult ResolvePathRecursive(object? current, IReadOnlyList<string> segments, int segmentIndex)
@@ -215,6 +273,76 @@ internal static class SpecificationQueryCompiler
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(x => x.CanRead)
                 .ToArray());
+    }
+
+    private static bool TryGetEnumSuggestions(Type rootType, string queryText, int maxSuggestionCount, out IReadOnlyList<string> suggestions)
+    {
+        suggestions = [];
+        var match = GetEnumSuggestionContextMatch(queryText);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var path = match.Groups["path"].Value;
+        var fragment = match.Groups["fragment"].Success ? match.Groups["fragment"].Value : string.Empty;
+        var enumValuesByPath = EnumPathValueCache.GetOrAdd(rootType, BuildEnumPathValueMap);
+        if (!enumValuesByPath.TryGetValue(path, out var enumValues))
+        {
+            return false;
+        }
+
+        suggestions = enumValues
+            .Where(x => string.IsNullOrWhiteSpace(fragment) || x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase))
+            .Take(maxSuggestionCount)
+            .ToList();
+
+        return suggestions.Count > 0;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> BuildEnumPathValueMap(Type rootType)
+    {
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        CollectEnumPaths(rootType, null, map);
+        return map;
+    }
+
+    private static void CollectEnumPaths(Type type, string? prefix, Dictionary<string, IReadOnlyList<string>> destination)
+    {
+        foreach (var property in GetReadableProperties(type))
+        {
+            var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+            var path = string.IsNullOrWhiteSpace(prefix) ? property.Name : $"{prefix}.{property.Name}";
+
+            if (propertyType.IsEnum)
+            {
+                destination[path] = Enum.GetNames(propertyType);
+                continue;
+            }
+
+            if (IsLeafType(propertyType))
+            {
+                continue;
+            }
+
+            CollectEnumPaths(propertyType, path, destination);
+        }
+    }
+
+    private static Match GetEnumSuggestionContextMatch(string queryText)
+    {
+        return EnumSuggestionContextRegex().Match(queryText);
+    }
+
+    private static string? GetCurrentIdentifierFragment(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var match = QueryFragmentRegex().Match(text);
+        return match.Success ? match.Value : null;
     }
 
     private static int CompareValues(object? left, object? right)
@@ -313,6 +441,12 @@ internal static class SpecificationQueryCompiler
     {
         return type.IsEnum || LeafTypes.Contains(type);
     }
+
+    [GeneratedRegex(@"(?<path>[A-Za-z_][A-Za-z0-9_.]*)\s*(==|=|>|<)\s*(?<fragment>[A-Za-z_][A-Za-z0-9_]*)?\s*$", RegexOptions.Compiled)]
+    private static partial Regex EnumSuggestionContextRegex();
+
+    [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled)]
+    private static partial Regex QueryFragmentRegex();
 
     private readonly record struct PathResolutionResult(PathResolutionStatus Status, object? Value)
     {

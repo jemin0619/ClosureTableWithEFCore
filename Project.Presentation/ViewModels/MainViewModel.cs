@@ -12,6 +12,8 @@ namespace Project.Presentation.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    private const int MaxQuerySuggestionCount = 12;
+
     private readonly ISpecificationService _specificationService;
 
     private string _searchText = string.Empty;
@@ -31,7 +33,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ObservableCollection<string> _queryPathSuggestions = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
     private IReadOnlyList<string>? _queryFilteredSerialCodes;
-    private readonly IReadOnlyList<string> _queryablePaths;
     private CancellationTokenSource? _toastCancellationTokenSource;
     private static readonly Regex QueryFragmentRegex = new(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled);
 
@@ -169,7 +170,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public MainViewModel(ISpecificationService specificationService)
     {
         _specificationService = specificationService;
-        _queryablePaths = _specificationService.GetQueryablePaths<Specification>();
         PrimaryActionCommand = new AsyncRelayCommand(PrimaryActionAsync);
         ClearCommand = new AsyncRelayCommand(ClearAsync);
         ToggleDetailSearchCommand = new AsyncRelayCommand(ToggleDetailSearchAsync);
@@ -473,38 +473,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        var fragment = TryGetCurrentQueryFragment(DetailQueryText);
-        if (string.IsNullOrWhiteSpace(fragment))
-        {
-            QueryPathSuggestions = [];
-            IsQuerySuggestionVisible = false;
-            return;
-        }
-
-        var suggestions = _queryablePaths
-            .Where(x => x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase)
-                        || x.Contains($".{fragment}", StringComparison.OrdinalIgnoreCase))
-            .Take(12)
-            .ToList();
-
+        var suggestions = _specificationService.GetQuerySuggestions<Specification>(DetailQueryText, MaxQuerySuggestionCount);
         QueryPathSuggestions = new ObservableCollection<string>(suggestions);
         IsQuerySuggestionVisible = suggestions.Count > 0;
-    }
-
-    private static string? TryGetCurrentQueryFragment(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
-
-        var match = QueryFragmentRegex.Match(text);
-        if (!match.Success)
-        {
-            return null;
-        }
-
-        return match.Value;
     }
 
     private void ShowToast(string message, ToastKind toastType)

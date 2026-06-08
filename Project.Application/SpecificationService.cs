@@ -27,6 +27,9 @@ public interface ISpecificationService
 
     IReadOnlyList<string> GetQueryablePaths<TSpecification>()
         where TSpecification : class;
+
+    IReadOnlyList<string> GetQuerySuggestions<TSpecification>(string queryText, int maxSuggestionCount = 12)
+        where TSpecification : class;
 }
 
 public sealed class SpecificationService(ISpecificationRepository specificationRepository) : ISpecificationService, ISpecValueReader
@@ -100,6 +103,12 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
         where TSpecification : class
     {
         return SpecificationQueryCompiler.GetQueryablePaths<TSpecification>();
+    }
+
+    public IReadOnlyList<string> GetQuerySuggestions<TSpecification>(string queryText, int maxSuggestionCount = 12)
+        where TSpecification : class
+    {
+        return SpecificationQueryCompiler.GetQuerySuggestions<TSpecification>(queryText, maxSuggestionCount);
     }
 
     Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)
