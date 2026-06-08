@@ -52,26 +52,46 @@
                 <TextBox Grid.Row="0" Margin="0,0,0,8"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
 
-                <ListBox Grid.Row="1"
-                         ItemsSource="{Binding CandidateSerialCodes}"
-                         SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
+                <DataGrid x:Name="CandidateGrid"
+                          Grid.Row="1"
+                          ItemsSource="{Binding CandidateSerialCodes}"
+                          SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserReorderColumns="False"
+                          CanUserResizeRows="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single"
+                          SelectionUnit="FullRow"
+                          EnableRowVirtualization="True"
+                          EnableColumnVirtualization="True"
+                          ScrollViewer.CanContentScroll="True"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="식별자"
+                                            Width="*"
+                                            Binding="{Binding}"/>
+                    </DataGrid.Columns>
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
                             <Setter Property="ContextMenu">
                                 <Setter.Value>
                                     <ContextMenu>
                                         <MenuItem Header="수정"
-                                                  Command="{Binding PlacementTarget.DataContext.StartEditCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  Command="{Binding Source={x:Reference CandidateGrid}, Path=DataContext.StartEditCommand}"
                                                   CommandParameter="{Binding}"/>
                                         <MenuItem Header="삭제"
-                                                  Command="{Binding PlacementTarget.DataContext.DeleteCandidateCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  Command="{Binding Source={x:Reference CandidateGrid}, Path=DataContext.DeleteCandidateCommand}"
                                                   CommandParameter="{Binding}"/>
                                     </ContextMenu>
                                 </Setter.Value>
                             </Setter>
                         </Style>
-                    </ListBox.ItemContainerStyle>
-                </ListBox>
+                    </DataGrid.RowStyle>
+                </DataGrid>
             </Grid>
         </GroupBox>
 
