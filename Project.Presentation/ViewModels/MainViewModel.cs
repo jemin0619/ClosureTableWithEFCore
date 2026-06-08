@@ -13,52 +13,61 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly ISpecificationService _specificationService;
 
-    private string _serialCode = string.Empty;
-    private string? _selectedSerialForSave;
-    private string? _selectedSerialForLoad;
-    private string _loadSearchText = string.Empty;
+    private string _searchText = string.Empty;
+    private string? _selectedCandidate;
+    private bool _isEditMode;
+    private string? _editingSerialCode;
     private string _toastMessage = string.Empty;
     private bool _isToastVisible;
     private Brush _toastBackground = new SolidColorBrush(Color.FromRgb(207, 244, 252));
     private Brush _toastForeground = new SolidColorBrush(Color.FromRgb(5, 81, 96));
     private Brush _toastBorderBrush = new SolidColorBrush(Color.FromRgb(158, 234, 249));
     private ObservableCollection<string> _serialCodes = [];
-    private ObservableCollection<string> _filteredSerialCodes = [];
+    private ObservableCollection<string> _candidateSerialCodes = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
     private CancellationTokenSource? _toastCancellationTokenSource;
 
-    public string SerialCode
+    public string SearchText
     {
-        get => _serialCode;
-        set => SetField(ref _serialCode, value);
-    }
-
-    public string? SelectedSerialForSave
-    {
-        get => _selectedSerialForSave;
-        set => SetField(ref _selectedSerialForSave, value);
-    }
-
-    public string? SelectedSerialForLoad
-    {
-        get => _selectedSerialForLoad;
-        set => SetField(ref _selectedSerialForLoad, value);
-    }
-
-    public string LoadSearchText
-    {
-        get => _loadSearchText;
+        get => _searchText;
         set
         {
-            if (!SetField(ref _loadSearchText, value))
+            if (!SetField(ref _searchText, value))
             {
                 return;
             }
 
-            ApplyLoadFilter();
-            SelectedSerialForLoad = null;
+            ApplyCandidateFilter();
+            OnPropertyChanged(nameof(TargetSerialLabel));
         }
     }
+
+    public string? SelectedCandidate
+    {
+        get => _selectedCandidate;
+        set => SetField(ref _selectedCandidate, value);
+    }
+
+    public bool IsEditMode
+    {
+        get => _isEditMode;
+        private set
+        {
+            if (!SetField(ref _isEditMode, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(PrimaryActionButtonText));
+            OnPropertyChanged(nameof(TargetSerialLabel));
+        }
+    }
+
+    public string PrimaryActionButtonText => IsEditMode ? "Update" : "Create";
+
+    public string TargetSerialLabel => IsEditMode
+        ? _editingSerialCode ?? string.Empty
+        : SearchText.Trim();
 
     public string ToastMessage
     {
@@ -96,10 +105,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _serialCodes, value);
     }
 
-    public ObservableCollection<string> FilteredSerialCodes
+    public ObservableCollection<string> CandidateSerialCodes
     {
-        get => _filteredSerialCodes;
-        set => SetField(ref _filteredSerialCodes, value);
+        get => _candidateSerialCodes;
+        set => SetField(ref _candidateSerialCodes, value);
     }
 
     public ObservableCollection<SpecNodeViewModel> SpecNodes
@@ -108,22 +117,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _specNodes, value);
     }
 
-    public ICommand SaveCommand { get; }
-    public ICommand CreateCommand { get; }
-    public ICommand UpdateCommand { get; }
-    public ICommand DeleteCommand { get; }
-    public ICommand LoadCommand { get; }
-    public ICommand RefreshCommand { get; }
+    public ICommand PrimaryActionCommand { get; }
+    public ICommand ClearCommand { get; }
+    public ICommand StartEditCommand { get; }
+    public ICommand DeleteCandidateCommand { get; }
+    public ICommand CopyCandidateCommand { get; }
 
     public MainViewModel(ISpecificationService specificationService)
     {
         _specificationService = specificationService;
-        SaveCommand = new AsyncRelayCommand(SaveAsync);
-        CreateCommand = new AsyncRelayCommand(CreateAsync);
-        UpdateCommand = new AsyncRelayCommand(UpdateAsync);
-        DeleteCommand = new AsyncRelayCommand(DeleteAsync);
-        LoadCommand = new AsyncRelayCommand(LoadAsync);
-        RefreshCommand = new AsyncRelayCommand(() => RefreshSerialsAsync());
+        PrimaryActionCommand = new AsyncRelayCommand(PrimaryActionAsync);
+        ClearCommand = new AsyncRelayCommand(ClearAsync);
+        StartEditCommand = new AsyncRelayCommand<string>(StartEditAsync);
+        DeleteCandidateCommand = new AsyncRelayCommand<string>(DeleteCandidateAsync);
+        CopyCandidateCommand = new AsyncRelayCommand<string>(CopyCandidateAsync);
         ResetSpecNodes(new Specification());
     }
 
@@ -134,15 +141,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SpecNodes = new ObservableCollection<SpecNodeViewModel>(SpecNodeViewModel.BuildFrom(spec));
     }
 
-    private async Task SaveAsync()
+    private async Task PrimaryActionAsync()
     {
         try
         {
-            var serialCode = ValidateSerialCode();
-            var spec = ReadSpecificationFromNodes();
-            await _specificationService.SaveSpecificationAsync(serialCode, spec);
-            await RefreshSerialsAsync(serialCode);
-            ShowToast($"{serialCode} 사양을 저장했어.", ToastKind.Success);
+            if (IsEditMode)
+            {
+                await UpdateAsync();
+                return;
+            }
+
+            await CreateAsync();
         }
         catch (Exception ex)
         {
@@ -152,41 +161,70 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task CreateAsync()
     {
-        try
-        {
-            var serialCode = ValidateSerialCode();
-            var spec = ReadSpecificationFromNodes();
-            await _specificationService.CreateSpecificationAsync(serialCode, spec);
-            await RefreshSerialsAsync(serialCode);
-            ShowToast($"{serialCode} 사양을 신규 생성했어.", ToastKind.Success);
-        }
-        catch (Exception ex)
-        {
-            ShowToast($"생성 실패: {ex.Message}", ToastKind.Error);
-        }
+        var serialCode = ValidateSerialCode(SearchText);
+        var spec = ReadSpecificationFromNodes();
+        await _specificationService.CreateSpecificationAsync(serialCode, spec);
+        await RefreshSerialsAsync(serialCode);
+        SearchText = serialCode;
+        ShowToast($"{serialCode} 사양을 신규 생성했어.", ToastKind.Success);
     }
 
     private async Task UpdateAsync()
     {
-        try
+        var serialCode = _editingSerialCode;
+        if (string.IsNullOrWhiteSpace(serialCode))
         {
-            var serialCode = ValidateSerialCode();
-            var spec = ReadSpecificationFromNodes();
-            await _specificationService.UpdateSpecificationAsync(serialCode, spec);
-            await RefreshSerialsAsync(serialCode);
-            ShowToast($"{serialCode} 사양을 수정했어.", ToastKind.Success);
+            throw new InvalidOperationException("수정할 식별자가 없어.");
         }
-        catch (Exception ex)
-        {
-            ShowToast($"수정 실패: {ex.Message}", ToastKind.Error);
-        }
+
+        var spec = ReadSpecificationFromNodes();
+        await _specificationService.UpdateSpecificationAsync(serialCode, spec);
+        await RefreshSerialsAsync(serialCode);
+        ShowToast($"{serialCode} 사양을 수정했어.", ToastKind.Success);
     }
 
-    private async Task DeleteAsync()
+    private async Task StartEditAsync(string? serialCode)
     {
         try
         {
-            var serialCode = ValidateSerialCode();
+            serialCode = string.IsNullOrWhiteSpace(serialCode) ? SelectedCandidate : serialCode;
+            if (string.IsNullOrWhiteSpace(serialCode) || !SerialCodes.Contains(serialCode))
+            {
+                ShowToast("수정할 식별자를 선택해줘.", ToastKind.Warning);
+                return;
+            }
+
+            var spec = await _specificationService.LoadSpecificationAsync<Specification>(serialCode);
+            if (spec is null)
+            {
+                ShowToast($"{serialCode} 사양을 찾지 못했어.", ToastKind.Warning);
+                return;
+            }
+
+            _editingSerialCode = serialCode;
+            IsEditMode = true;
+            SelectedCandidate = serialCode;
+            SearchText = serialCode;
+            ResetSpecNodes(spec);
+            ShowToast($"{serialCode} 사양을 편집 모드로 불러왔어.", ToastKind.Info);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"불러오기 실패: {ex.Message}", ToastKind.Error);
+        }
+    }
+
+    private async Task DeleteCandidateAsync(string? serialCode)
+    {
+        try
+        {
+            serialCode = string.IsNullOrWhiteSpace(serialCode) ? SelectedCandidate : serialCode;
+            if (string.IsNullOrWhiteSpace(serialCode))
+            {
+                ShowToast("삭제할 식별자를 선택해줘.", ToastKind.Warning);
+                return;
+            }
+
             var deleted = await _specificationService.DeleteSpecificationAsync(serialCode);
             if (!deleted)
             {
@@ -194,9 +232,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
-            if (SelectedSerialForSave == serialCode)
+            if (string.Equals(_editingSerialCode, serialCode, StringComparison.OrdinalIgnoreCase))
             {
-                SerialCode = string.Empty;
+                ExitEditMode();
                 ResetSpecNodes(new Specification());
             }
 
@@ -209,14 +247,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task LoadAsync()
+    private async Task CopyCandidateAsync(string? serialCode)
     {
         try
         {
-            var serialCode = SelectedSerialForLoad;
+            serialCode = string.IsNullOrWhiteSpace(serialCode) ? SelectedCandidate : serialCode;
             if (string.IsNullOrWhiteSpace(serialCode) || !SerialCodes.Contains(serialCode))
             {
-                ShowToast("목록에서 불러올 Serial을 선택해줘.", ToastKind.Warning);
+                ShowToast("복사할 식별자를 선택해줘.", ToastKind.Warning);
                 return;
             }
 
@@ -227,14 +265,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
-            SerialCode = serialCode;
+            ExitEditMode();
+            SelectedCandidate = serialCode;
+            SearchText = string.Empty;
             ResetSpecNodes(spec);
-            ShowToast($"{serialCode} 사양을 불러왔어.", ToastKind.Info);
+            ShowToast($"{serialCode} 사양을 복사해서 Create 모드로 가져왔어.", ToastKind.Info);
         }
         catch (Exception ex)
         {
-            ShowToast($"불러오기 실패: {ex.Message}", ToastKind.Error);
+            ShowToast($"복사 실패: {ex.Message}", ToastKind.Error);
         }
+    }
+
+    private Task ClearAsync()
+    {
+        SearchText = string.Empty;
+        SelectedCandidate = null;
+        ExitEditMode();
+        ResetSpecNodes(new Specification());
+        ShowToast("입력값을 모두 초기화했어.", ToastKind.Info);
+        return Task.CompletedTask;
+    }
+
+    private void ExitEditMode()
+    {
+        _editingSerialCode = null;
+        IsEditMode = false;
+        OnPropertyChanged(nameof(TargetSerialLabel));
     }
 
     private async Task RefreshSerialsAsync(string? selectedSerialCode = null)
@@ -243,19 +300,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             var codes = await _specificationService.ListSerialCodesAsync();
             var codeList = codes.ToList();
+
             SerialCodes = new ObservableCollection<string>(codeList);
+            ApplyCandidateFilter();
 
-            var target = !string.IsNullOrWhiteSpace(selectedSerialCode) && codeList.Contains(selectedSerialCode)
+            SelectedCandidate = !string.IsNullOrWhiteSpace(selectedSerialCode) && codeList.Contains(selectedSerialCode)
                 ? selectedSerialCode
-                : codeList.Count > 0 ? codeList[0] : null;
-
-            SelectedSerialForSave = target;
-            LoadSearchText = string.Empty;
-            ApplyLoadFilter();
-            SelectedSerialForLoad = target;
+                : SelectedCandidate is not null && codeList.Contains(SelectedCandidate)
+                    ? SelectedCandidate
+                    : null;
 
             if (codeList.Count == 0)
-                ShowToast("저장된 Serial이 아직 없어.", ToastKind.Info);
+            {
+                ShowToast("저장된 식별자가 아직 없어.", ToastKind.Info);
+            }
         }
         catch (Exception ex)
         {
@@ -263,12 +321,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private string ValidateSerialCode()
+    private static string ValidateSerialCode(string input)
     {
-        var serialCode = SerialCode.Trim();
+        var serialCode = input.Trim();
         if (string.IsNullOrWhiteSpace(serialCode))
         {
-            throw new InvalidOperationException("Serial Code를 입력해줘.");
+            throw new InvalidOperationException("식별자를 입력해줘.");
         }
 
         return serialCode;
@@ -281,16 +339,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return spec;
     }
 
-    private void ApplyLoadFilter()
+    private void ApplyCandidateFilter()
     {
-        var keyword = LoadSearchText.Trim();
+        var keyword = SearchText.Trim();
         var filtered = string.IsNullOrWhiteSpace(keyword)
             ? SerialCodes.ToList()
             : SerialCodes
                 .Where(x => x.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-        FilteredSerialCodes = new ObservableCollection<string>(filtered);
+        CandidateSerialCodes = new ObservableCollection<string>(filtered);
     }
 
     private void ShowToast(string message, ToastKind toastType)
@@ -322,21 +380,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var style = toastType switch
         {
             ToastKind.Success => new ToastStyle(
-                new SolidColorBrush(Color.FromRgb(209, 231, 221)),   // #d1e7dd
-                new SolidColorBrush(Color.FromRgb(15, 81, 50)),      // #0f5132
-                new SolidColorBrush(Color.FromRgb(163, 207, 187))),  // #a3cfbb
+                new SolidColorBrush(Color.FromRgb(209, 231, 221)),
+                new SolidColorBrush(Color.FromRgb(15, 81, 50)),
+                new SolidColorBrush(Color.FromRgb(163, 207, 187))),
             ToastKind.Warning => new ToastStyle(
-                new SolidColorBrush(Color.FromRgb(255, 243, 205)),   // #fff3cd
-                new SolidColorBrush(Color.FromRgb(102, 77, 3)),      // #664d03
-                new SolidColorBrush(Color.FromRgb(255, 230, 156))),  // #ffe69c
+                new SolidColorBrush(Color.FromRgb(255, 243, 205)),
+                new SolidColorBrush(Color.FromRgb(102, 77, 3)),
+                new SolidColorBrush(Color.FromRgb(255, 230, 156))),
             ToastKind.Error => new ToastStyle(
-                new SolidColorBrush(Color.FromRgb(248, 215, 218)),   // #f8d7da
-                new SolidColorBrush(Color.FromRgb(132, 32, 41)),     // #842029
-                new SolidColorBrush(Color.FromRgb(241, 174, 181))),  // #f1aeb5
+                new SolidColorBrush(Color.FromRgb(248, 215, 218)),
+                new SolidColorBrush(Color.FromRgb(132, 32, 41)),
+                new SolidColorBrush(Color.FromRgb(241, 174, 181))),
             _ => new ToastStyle(
-                new SolidColorBrush(Color.FromRgb(207, 244, 252)),   // #cff4fc
-                new SolidColorBrush(Color.FromRgb(5, 81, 96)),       // #055160
-                new SolidColorBrush(Color.FromRgb(158, 234, 249)))   // #9eeaf9
+                new SolidColorBrush(Color.FromRgb(207, 244, 252)),
+                new SolidColorBrush(Color.FromRgb(5, 81, 96)),
+                new SolidColorBrush(Color.FromRgb(158, 234, 249)))
         };
 
         ToastBackground = style.Background;
@@ -352,6 +410,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         return true;
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
     private sealed record ToastStyle(Brush Background, Brush Foreground, Brush BorderBrush);
