@@ -21,6 +21,12 @@ public interface ISpecificationService
     Task<string?> GetSpecValueAsync(string serialCode, string path, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> QuerySerialCodesAsync<TSpecification>(string query, CancellationToken cancellationToken = default)
+        where TSpecification : class, new();
+
+    IReadOnlyList<string> GetQueryablePaths<TSpecification>()
+        where TSpecification : class;
 }
 
 public sealed class SpecificationService(ISpecificationRepository specificationRepository) : ISpecificationService, ISpecValueReader
@@ -64,6 +70,36 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
     public Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default)
     {
         return _specificationRepository.ListSerialCodesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> QuerySerialCodesAsync<TSpecification>(string query, CancellationToken cancellationToken = default)
+        where TSpecification : class, new()
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return await ListSerialCodesAsync(cancellationToken);
+        }
+
+        var predicate = SpecificationQueryCompiler.Compile<TSpecification>(query);
+        var serialCodes = await _specificationRepository.ListSerialCodesAsync(cancellationToken);
+        var matched = new List<string>();
+
+        foreach (var serialCode in serialCodes)
+        {
+            var specification = await _specificationRepository.LoadAsync<TSpecification>(serialCode, cancellationToken);
+            if (specification is not null && predicate(specification))
+            {
+                matched.Add(serialCode);
+            }
+        }
+
+        return matched;
+    }
+
+    public IReadOnlyList<string> GetQueryablePaths<TSpecification>()
+        where TSpecification : class
+    {
+        return SpecificationQueryCompiler.GetQueryablePaths<TSpecification>();
     }
 
     Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)
