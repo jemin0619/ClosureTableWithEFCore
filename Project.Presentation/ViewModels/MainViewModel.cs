@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using System.Windows.Input;
 using System.Windows.Media;
 using Project.Application;
@@ -12,8 +11,6 @@ namespace Project.Presentation.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
-    private const int MaxQuerySuggestionCount = 12;
-
     private readonly ISpecificationService _specificationService;
 
     private string _searchText = string.Empty;
@@ -21,7 +18,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _selectedCandidate;
     private bool _isEditMode;
     private bool _isDetailSearchVisible;
-    private bool _isQuerySuggestionVisible;
     private string? _editingSerialCode;
     private string _toastMessage = string.Empty;
     private bool _isToastVisible;
@@ -30,12 +26,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Brush _toastBorderBrush = new SolidColorBrush(Color.FromRgb(158, 234, 249));
     private ObservableCollection<string> _serialCodes = [];
     private ObservableCollection<string> _candidateSerialCodes = [];
-    private ObservableCollection<string> _queryPathSuggestions = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
     private IReadOnlyList<string>? _queryFilteredSerialCodes;
     private CancellationTokenSource? _toastCancellationTokenSource;
-    private static readonly Regex QueryFragmentRegex = new(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled);
-    private static readonly Regex IdentifierSuggestionRegex = new(@"^[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled);
 
     public string SearchText
     {
@@ -55,15 +48,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DetailQueryText
     {
         get => _detailQueryText;
-        set
-        {
-            if (!SetField(ref _detailQueryText, value))
-            {
-                return;
-            }
-
-            UpdateQuerySuggestions();
-        }
+        set => SetField(ref _detailQueryText, value);
     }
 
     public string? SelectedCandidate
@@ -91,12 +76,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _isDetailSearchVisible;
         set => SetField(ref _isDetailSearchVisible, value);
-    }
-
-    public bool IsQuerySuggestionVisible
-    {
-        get => _isQuerySuggestionVisible;
-        set => SetField(ref _isQuerySuggestionVisible, value);
     }
 
     public string PrimaryActionButtonText => IsEditMode ? "Update" : "Create";
@@ -153,17 +132,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _specNodes, value);
     }
 
-    public ObservableCollection<string> QueryPathSuggestions
-    {
-        get => _queryPathSuggestions;
-        set => SetField(ref _queryPathSuggestions, value);
-    }
-
     public ICommand PrimaryActionCommand { get; }
     public ICommand ClearCommand { get; }
     public ICommand ToggleDetailSearchCommand { get; }
     public ICommand SearchByDetailQueryCommand { get; }
-    public ICommand ApplyQuerySuggestionCommand { get; }
     public ICommand StartEditCommand { get; }
     public ICommand DeleteCandidateCommand { get; }
     public ICommand CopyCandidateCommand { get; }
@@ -175,7 +147,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearCommand = new AsyncRelayCommand(ClearAsync);
         ToggleDetailSearchCommand = new AsyncRelayCommand(ToggleDetailSearchAsync);
         SearchByDetailQueryCommand = new AsyncRelayCommand(SearchByDetailQueryAsync);
-        ApplyQuerySuggestionCommand = new AsyncRelayCommand<string>(ApplyQuerySuggestionAsync);
         StartEditCommand = new AsyncRelayCommand<string>(StartEditAsync);
         DeleteCandidateCommand = new AsyncRelayCommand<string>(DeleteCandidateAsync);
         CopyCandidateCommand = new AsyncRelayCommand<string>(CopyCandidateAsync);
@@ -331,7 +302,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DetailQueryText = string.Empty;
         SelectedCandidate = null;
         _queryFilteredSerialCodes = null;
-        IsQuerySuggestionVisible = false;
         ExitEditMode();
         ApplyCandidateFilter();
         ResetSpecNodes(new Specification());
@@ -347,12 +317,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             DetailQueryText = string.Empty;
             _queryFilteredSerialCodes = null;
-            IsQuerySuggestionVisible = false;
             ApplyCandidateFilter();
-        }
-        else
-        {
-            UpdateQuerySuggestions();
         }
 
         return Task.CompletedTask;
@@ -379,34 +344,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             ShowToast($"상세 검색 실패: {ex.Message}", ToastKind.Error);
         }
-    }
-
-    private Task ApplyQuerySuggestionAsync(string? suggestion)
-    {
-        if (string.IsNullOrWhiteSpace(suggestion))
-        {
-            return Task.CompletedTask;
-        }
-
-        if (IdentifierSuggestionRegex.IsMatch(suggestion))
-        {
-            var match = QueryFragmentRegex.Match(DetailQueryText);
-            DetailQueryText = match.Success
-                ? QueryFragmentRegex.Replace(DetailQueryText, suggestion, 1)
-                : string.IsNullOrWhiteSpace(DetailQueryText)
-                    ? suggestion
-                    : $"{DetailQueryText}{suggestion}";
-        }
-        else
-        {
-            DetailQueryText = string.IsNullOrWhiteSpace(DetailQueryText)
-                ? suggestion.Trim()
-                : $"{DetailQueryText.TrimEnd()}{suggestion}";
-        }
-
-        QueryPathSuggestions = [];
-        IsQuerySuggestionVisible = false;
-        return Task.CompletedTask;
     }
 
     private void ExitEditMode()
@@ -472,20 +409,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 .ToList();
 
         CandidateSerialCodes = new ObservableCollection<string>(filtered);
-    }
-
-    private void UpdateQuerySuggestions()
-    {
-        if (!IsDetailSearchVisible)
-        {
-            QueryPathSuggestions = [];
-            IsQuerySuggestionVisible = false;
-            return;
-        }
-
-        var suggestions = _specificationService.GetQuerySuggestions<Specification>(DetailQueryText, MaxQuerySuggestionCount);
-        QueryPathSuggestions = new ObservableCollection<string>(suggestions);
-        IsQuerySuggestionVisible = suggestions.Count > 0;
     }
 
     private void ShowToast(string message, ToastKind toastType)

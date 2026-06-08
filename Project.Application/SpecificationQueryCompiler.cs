@@ -1,36 +1,14 @@
 using System.Globalization;
 using System.Reflection;
 using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
 
 namespace Project.Application;
 
 internal static partial class SpecificationQueryCompiler
 {
-    private static readonly ConcurrentDictionary<Type, IReadOnlyList<string>> QueryablePathCache = new();
-    private static readonly ConcurrentDictionary<Type, IReadOnlyDictionary<string, IReadOnlyList<string>>> EnumPathValueCache = new();
     private static readonly ConcurrentDictionary<string, string[]> PathSegmentCache = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> ReadablePropertiesCache = new();
     private static readonly ConcurrentDictionary<(Type Type, string Segment), PropertyInfo[]> SegmentCandidateCache = new();
-    private static readonly string[] ComparisonOperatorSuggestions = [" == ", " >= ", " <= ", " > ", " < "];
-    private static readonly string[] LogicalOperatorSuggestions = [" && ", " || "];
-
-    private static readonly IReadOnlySet<Type> LeafTypes = new HashSet<Type>
-    {
-        typeof(string),
-        typeof(bool),
-        typeof(byte),
-        typeof(sbyte),
-        typeof(short),
-        typeof(ushort),
-        typeof(int),
-        typeof(uint),
-        typeof(long),
-        typeof(ulong),
-        typeof(float),
-        typeof(double),
-        typeof(decimal)
-    };
 
     public static Func<TSpecification, bool> Compile<TSpecification>(string query)
         where TSpecification : class
@@ -39,73 +17,6 @@ internal static partial class SpecificationQueryCompiler
         var parser = new Parser(query);
         var expression = parser.Parse();
         return specification => EvaluateBooleanExpression(expression, specification);
-    }
-
-    public static IReadOnlyList<string> GetQueryablePaths<TSpecification>()
-        where TSpecification : class
-    {
-        return QueryablePathCache.GetOrAdd(typeof(TSpecification), static type =>
-        {
-            var paths = new List<string>();
-            CollectPaths(type, null, paths);
-            return paths;
-        });
-    }
-
-    public static IReadOnlyList<string> GetQuerySuggestions<TSpecification>(string queryText, int maxSuggestionCount = 12)
-        where TSpecification : class
-    {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSuggestionCount);
-
-        if (TryGetComparisonOperatorSuggestions<TSpecification>(queryText, out var comparisonOperatorSuggestions))
-        {
-            return comparisonOperatorSuggestions;
-        }
-
-        if (TryGetEnumSuggestions(typeof(TSpecification), queryText, maxSuggestionCount, out var enumSuggestions))
-        {
-            return enumSuggestions;
-        }
-
-        if (TryGetLogicalOperatorSuggestions(queryText, out var logicalOperatorSuggestions))
-        {
-            return logicalOperatorSuggestions;
-        }
-
-        var fragment = GetCurrentIdentifierFragment(queryText);
-        if (string.IsNullOrWhiteSpace(fragment) && !IsExpectingPathSuggestion(queryText))
-        {
-            return [];
-        }
-
-        return GetQueryablePaths<TSpecification>()
-            .Where(x => string.IsNullOrWhiteSpace(fragment)
-                        || x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase)
-                        || x.Contains($".{fragment}", StringComparison.OrdinalIgnoreCase))
-            .Take(maxSuggestionCount)
-            .ToList();
-    }
-
-    private static void CollectPaths(Type type, string? prefix, List<string> destination)
-    {
-        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (!property.CanRead)
-            {
-                continue;
-            }
-
-            var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-            var path = string.IsNullOrWhiteSpace(prefix) ? property.Name : $"{prefix}.{property.Name}";
-            destination.Add(path);
-
-            if (IsLeafType(propertyType))
-            {
-                continue;
-            }
-
-            CollectPaths(propertyType, path, destination);
-        }
     }
 
     private static bool EvaluateBooleanExpression(AstNode node, object? specification)
@@ -170,29 +81,6 @@ internal static partial class SpecificationQueryCompiler
         if (expectedEnumType?.IsEnum == true && !path.Contains('.', StringComparison.Ordinal))
         {
             return path;
-        }
-
-        if (resolution.Status == PathResolutionStatus.Ambiguous)
-        {
-            throw new InvalidOperationException($"'{path}' 경로가 모호해.");
-        }
-
-        throw new InvalidOperationException($"'{path}' 경로를 찾을 수 없어.");
-    }
-
-    private static object? ResolvePathValue(object root, string path)
-    {
-        var segments = PathSegmentCache.GetOrAdd(path, static key =>
-            key.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        if (segments.Length == 0)
-        {
-            throw new InvalidOperationException("경로가 비어있어.");
-        }
-
-        var resolution = ResolvePathRecursive(root, segments, 0);
-        if (resolution.Status == PathResolutionStatus.Success)
-        {
-            return resolution.Value;
         }
 
         if (resolution.Status == PathResolutionStatus.Ambiguous)
@@ -290,127 +178,6 @@ internal static partial class SpecificationQueryCompiler
                 .ToArray());
     }
 
-    private static bool TryGetEnumSuggestions(Type rootType, string queryText, int maxSuggestionCount, out IReadOnlyList<string> suggestions)
-    {
-        suggestions = [];
-        var match = GetEnumSuggestionContextMatch(queryText);
-        if (!match.Success)
-        {
-            return false;
-        }
-
-        var path = match.Groups["path"].Value;
-        var fragment = match.Groups["fragment"].Success ? match.Groups["fragment"].Value : string.Empty;
-        var enumValuesByPath = EnumPathValueCache.GetOrAdd(rootType, BuildEnumPathValueMap);
-        if (!enumValuesByPath.TryGetValue(path, out var enumValues))
-        {
-            return false;
-        }
-
-        suggestions = enumValues
-            .Where(x => string.IsNullOrWhiteSpace(fragment) || x.StartsWith(fragment, StringComparison.OrdinalIgnoreCase))
-            .Take(maxSuggestionCount)
-            .ToList();
-
-        return suggestions.Count > 0;
-    }
-
-    private static bool TryGetComparisonOperatorSuggestions<TSpecification>(string queryText, out IReadOnlyList<string> suggestions)
-        where TSpecification : class
-    {
-        suggestions = [];
-        var fragment = GetCurrentIdentifierFragment(queryText);
-        if (string.IsNullOrWhiteSpace(fragment))
-        {
-            return false;
-        }
-
-        if (!GetQueryablePaths<TSpecification>().Contains(fragment, StringComparer.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var trimmed = queryText.TrimEnd();
-        if (!trimmed.EndsWith(fragment, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        suggestions = ComparisonOperatorSuggestions;
-        return true;
-    }
-
-    private static bool TryGetLogicalOperatorSuggestions(string queryText, out IReadOnlyList<string> suggestions)
-    {
-        suggestions = [];
-        if (!CompletedExpressionRegex().IsMatch(queryText))
-        {
-            return false;
-        }
-
-        suggestions = LogicalOperatorSuggestions;
-        return true;
-    }
-
-    private static IReadOnlyDictionary<string, IReadOnlyList<string>> BuildEnumPathValueMap(Type rootType)
-    {
-        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        CollectEnumPaths(rootType, null, map);
-        return map;
-    }
-
-    private static void CollectEnumPaths(Type type, string? prefix, Dictionary<string, IReadOnlyList<string>> destination)
-    {
-        foreach (var property in GetReadableProperties(type))
-        {
-            var propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-            var path = string.IsNullOrWhiteSpace(prefix) ? property.Name : $"{prefix}.{property.Name}";
-
-            if (propertyType.IsEnum)
-            {
-                destination[path] = Enum.GetNames(propertyType);
-                continue;
-            }
-
-            if (IsLeafType(propertyType))
-            {
-                continue;
-            }
-
-            CollectEnumPaths(propertyType, path, destination);
-        }
-    }
-
-    private static Match GetEnumSuggestionContextMatch(string queryText)
-    {
-        return EnumSuggestionContextRegex().Match(queryText);
-    }
-
-    private static string? GetCurrentIdentifierFragment(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
-
-        var match = QueryFragmentRegex().Match(text);
-        return match.Success ? match.Value : null;
-    }
-
-    private static bool IsExpectingPathSuggestion(string queryText)
-    {
-        var trimmed = queryText.TrimEnd();
-        if (string.IsNullOrWhiteSpace(trimmed))
-        {
-            return true;
-        }
-
-        return trimmed.EndsWith("&&", StringComparison.Ordinal)
-               || trimmed.EndsWith("||", StringComparison.Ordinal)
-               || trimmed.EndsWith("!", StringComparison.Ordinal)
-               || trimmed.EndsWith("(", StringComparison.Ordinal);
-    }
-
     private static int CompareValues(object? left, object? right)
     {
         if (left is null || right is null)
@@ -502,20 +269,6 @@ internal static partial class SpecificationQueryCompiler
 
         throw new InvalidOperationException("조건식 결과가 true/false가 아니야.");
     }
-
-    private static bool IsLeafType(Type type)
-    {
-        return type.IsEnum || LeafTypes.Contains(type);
-    }
-
-    [GeneratedRegex(@"(?<path>[A-Za-z_][A-Za-z0-9_.]*)\s*(==|=|>=|<=|>|<)\s*(?<fragment>[A-Za-z_][A-Za-z0-9_]*)?\s*$", RegexOptions.Compiled)]
-    private static partial Regex EnumSuggestionContextRegex();
-
-    [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_.]*$", RegexOptions.Compiled)]
-    private static partial Regex QueryFragmentRegex();
-
-    [GeneratedRegex(@"(?:[A-Za-z_][A-Za-z0-9_]*|-?\d+(?:\.\d+)?|true|false|""[^""]*""|'[^']*'|\))\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
-    private static partial Regex CompletedExpressionRegex();
 
     private readonly record struct PathResolutionResult(PathResolutionStatus Status, object? Value)
     {

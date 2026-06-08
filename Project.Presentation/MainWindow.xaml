@@ -74,47 +74,6 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,8,0">
                             <TextBox Text="{Binding DetailQueryText, UpdateSourceTrigger=PropertyChanged}"/>
-                            <Border Margin="0,4,0,0"
-                                   Background="#FFFFFF"
-                                   BorderBrush="#D9DDE3"
-                                   BorderThickness="1"
-                                   Visibility="{Binding IsQuerySuggestionVisible, Converter={StaticResource BoolToVis}}">
-                                <ItemsControl ItemsSource="{Binding QueryPathSuggestions}">
-                                   <ItemsControl.ItemTemplate>
-                                       <DataTemplate>
-                                           <Button Padding="10,6"
-                                                   HorizontalContentAlignment="Left"
-                                                   Background="Transparent"
-                                                   BorderThickness="0"
-                                                   Content="{Binding}"
-                                                   Command="{Binding DataContext.ApplyQuerySuggestionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                   CommandParameter="{Binding}">
-                                               <Button.Template>
-                                                   <ControlTemplate TargetType="Button">
-                                                       <Border Background="{TemplateBinding Background}">
-                                                           <ContentPresenter/>
-                                                       </Border>
-                                                   </ControlTemplate>
-                                               </Button.Template>
-                                               <Button.Style>
-                                                   <Style TargetType="Button">
-                                                       <Setter Property="Foreground" Value="#1F2933"/>
-                                                       <Setter Property="Background" Value="Transparent"/>
-                                                       <Style.Triggers>
-                                                           <Trigger Property="IsMouseOver" Value="True">
-                                                               <Setter Property="Background" Value="#F7F9FC"/>
-                                                           </Trigger>
-                                                           <Trigger Property="IsPressed" Value="True">
-                                                               <Setter Property="Background" Value="#EEF2F7"/>
-                                                           </Trigger>
-                                                       </Style.Triggers>
-                                                   </Style>
-                                               </Button.Style>
-                                           </Button>
-                                       </DataTemplate>
-                                   </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Border>
                         </StackPanel>
                         <Button Width="90"
                                 Grid.Column="1"
