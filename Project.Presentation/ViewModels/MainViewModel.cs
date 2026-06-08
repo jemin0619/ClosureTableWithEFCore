@@ -19,7 +19,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _selectedCandidate;
     private bool _isEditMode;
     private bool _isDetailSearchVisible;
-    private bool _isQuerySuggestionOpen;
+    private bool _isQuerySuggestionVisible;
     private string? _editingSerialCode;
     private string _toastMessage = string.Empty;
     private bool _isToastVisible;
@@ -91,10 +91,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _isDetailSearchVisible, value);
     }
 
-    public bool IsQuerySuggestionOpen
+    public bool IsQuerySuggestionVisible
     {
-        get => _isQuerySuggestionOpen;
-        set => SetField(ref _isQuerySuggestionOpen, value);
+        get => _isQuerySuggestionVisible;
+        set => SetField(ref _isQuerySuggestionVisible, value);
     }
 
     public string PrimaryActionButtonText => IsEditMode ? "Update" : "Create";
@@ -161,6 +161,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ClearCommand { get; }
     public ICommand ToggleDetailSearchCommand { get; }
     public ICommand SearchByDetailQueryCommand { get; }
+    public ICommand ApplyQuerySuggestionCommand { get; }
     public ICommand StartEditCommand { get; }
     public ICommand DeleteCandidateCommand { get; }
     public ICommand CopyCandidateCommand { get; }
@@ -173,6 +174,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearCommand = new AsyncRelayCommand(ClearAsync);
         ToggleDetailSearchCommand = new AsyncRelayCommand(ToggleDetailSearchAsync);
         SearchByDetailQueryCommand = new AsyncRelayCommand(SearchByDetailQueryAsync);
+        ApplyQuerySuggestionCommand = new AsyncRelayCommand<string>(ApplyQuerySuggestionAsync);
         StartEditCommand = new AsyncRelayCommand<string>(StartEditAsync);
         DeleteCandidateCommand = new AsyncRelayCommand<string>(DeleteCandidateAsync);
         CopyCandidateCommand = new AsyncRelayCommand<string>(CopyCandidateAsync);
@@ -328,7 +330,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DetailQueryText = string.Empty;
         SelectedCandidate = null;
         _queryFilteredSerialCodes = null;
-        IsQuerySuggestionOpen = false;
+        IsQuerySuggestionVisible = false;
         ExitEditMode();
         ApplyCandidateFilter();
         ResetSpecNodes(new Specification());
@@ -344,7 +346,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             DetailQueryText = string.Empty;
             _queryFilteredSerialCodes = null;
-            IsQuerySuggestionOpen = false;
+            IsQuerySuggestionVisible = false;
             ApplyCandidateFilter();
         }
         else
@@ -376,6 +378,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             ShowToast($"상세 검색 실패: {ex.Message}", ToastKind.Error);
         }
+    }
+
+    private Task ApplyQuerySuggestionAsync(string? suggestion)
+    {
+        if (string.IsNullOrWhiteSpace(suggestion))
+        {
+            return Task.CompletedTask;
+        }
+
+        var match = QueryFragmentRegex.Match(DetailQueryText);
+        DetailQueryText = match.Success
+            ? QueryFragmentRegex.Replace(DetailQueryText, suggestion, 1)
+            : string.IsNullOrWhiteSpace(DetailQueryText)
+                ? suggestion
+                : $"{DetailQueryText}{suggestion}";
+
+        QueryPathSuggestions = [];
+        IsQuerySuggestionVisible = false;
+        return Task.CompletedTask;
     }
 
     private void ExitEditMode()
@@ -448,7 +469,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!IsDetailSearchVisible)
         {
             QueryPathSuggestions = [];
-            IsQuerySuggestionOpen = false;
+            IsQuerySuggestionVisible = false;
             return;
         }
 
@@ -456,7 +477,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(fragment))
         {
             QueryPathSuggestions = [];
-            IsQuerySuggestionOpen = false;
+            IsQuerySuggestionVisible = false;
             return;
         }
 
@@ -467,7 +488,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .ToList();
 
         QueryPathSuggestions = new ObservableCollection<string>(suggestions);
-        IsQuerySuggestionOpen = suggestions.Count > 0;
+        IsQuerySuggestionVisible = suggestions.Count > 0;
     }
 
     private static string? TryGetCurrentQueryFragment(string text)
