@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Collections.Concurrent;
+using Project.Domain;
 
 namespace Project.Application;
 
@@ -17,6 +18,68 @@ internal static partial class SpecificationQueryCompiler
         var parser = new Parser(query);
         var expression = parser.Parse();
         return specification => EvaluateBooleanExpression(expression, specification);
+    }
+
+    public static SpecQueryCondition BuildDbCondition(string query)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        var parser = new Parser(query);
+        var expression = parser.Parse();
+        return ConvertToDbCondition(expression);
+    }
+
+    private static SpecQueryCondition ConvertToDbCondition(AstNode node)
+    {
+        return node switch
+        {
+            BinaryLogicalNode { Operator: LogicalOperator.And } and =>
+                new AndSpecQueryCondition(ConvertToDbCondition(and.Left), ConvertToDbCondition(and.Right)),
+            BinaryLogicalNode { Operator: LogicalOperator.Or } or =>
+                new OrSpecQueryCondition(ConvertToDbCondition(or.Left), ConvertToDbCondition(or.Right)),
+            UnaryLogicalNode notNode =>
+                new NotSpecQueryCondition(ConvertToDbCondition(notNode.Operand)),
+            ComparisonNode cmp => ConvertComparisonToDbCondition(cmp),
+            _ => throw new InvalidOperationException("DB 조건으로 변환할 수 없는 쿼리야.")
+        };
+    }
+
+    private static LeafSpecQueryCondition ConvertComparisonToDbCondition(ComparisonNode node)
+    {
+        if (node.Left is not PathOperandNode leftPath)
+        {
+            throw new InvalidOperationException("비교식의 왼쪽은 경로여야 해.");
+        }
+
+        string valueText;
+        if (node.Right is LiteralOperandNode literal)
+        {
+            valueText = literal.Value is null
+                ? string.Empty
+                : Convert.ToString(literal.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        }
+        else if (node.Right is PathOperandNode rightPath && !rightPath.Path.Contains('.', StringComparison.Ordinal))
+        {
+            // 점(.) 없는 단순 식별자 = enum 리터럴 등 (예: Type == TypeA)
+            valueText = rightPath.Path;
+        }
+        else
+        {
+            throw new InvalidOperationException("비교식의 오른쪽은 리터럴이거나 단순 식별자여야 해.");
+        }
+
+        var pathSegments = leftPath.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var op = node.Operator switch
+        {
+            ComparisonOperator.Equal => SpecQueryOperator.Equal,
+            ComparisonOperator.GreaterThan => SpecQueryOperator.GreaterThan,
+            ComparisonOperator.GreaterThanOrEqual => SpecQueryOperator.GreaterThanOrEqual,
+            ComparisonOperator.LessThan => SpecQueryOperator.LessThan,
+            ComparisonOperator.LessThanOrEqual => SpecQueryOperator.LessThanOrEqual,
+            ComparisonOperator.Like => SpecQueryOperator.Like,
+            _ => throw new InvalidOperationException("알 수 없는 비교 연산자야.")
+        };
+
+        return new LeafSpecQueryCondition(pathSegments, op, valueText);
     }
 
     private static bool EvaluateBooleanExpression(AstNode node, object? specification)
@@ -46,6 +109,13 @@ internal static partial class SpecificationQueryCompiler
     private static bool EvaluateComparison(ComparisonNode node, object specification)
     {
         var left = EvaluateOperand(node.Left, specification);
+
+        if (node.Operator == ComparisonOperator.Like)
+        {
+            var rightLike = EvaluateOperand(node.Right, specification);
+            return EvaluateLike(left, rightLike);
+        }
+
         var right = EvaluateOperand(node.Right, specification, left?.GetType().IsEnum == true ? left.GetType() : null);
         var comparisonResult = CompareValues(left, right);
 
@@ -58,6 +128,21 @@ internal static partial class SpecificationQueryCompiler
             ComparisonOperator.LessThan => comparisonResult < 0,
             _ => throw new InvalidOperationException("Unknown comparison operator.")
         };
+    }
+
+    private static bool EvaluateLike(object? left, object? right)
+    {
+        if (left is null || right is null)
+        {
+            throw new InvalidOperationException("비교할 값이 비어있어.");
+        }
+
+        if (left is string leftStr && right is string rightStr)
+        {
+            return leftStr.Contains(rightStr, StringComparison.OrdinalIgnoreCase);
+        }
+
+        throw new InvalidOperationException("like 연산자는 문자열에만 사용할 수 있어.");
     }
 
     private static object? EvaluateOperand(OperandNode node, object specification, Type? expectedEnumType = null)
@@ -364,6 +449,7 @@ internal static partial class SpecificationQueryCompiler
                 TokenType.GreaterThan => ComparisonOperator.GreaterThan,
                 TokenType.LessThanOrEqual => ComparisonOperator.LessThanOrEqual,
                 TokenType.LessThan => ComparisonOperator.LessThan,
+                TokenType.Like => ComparisonOperator.Like,
                 _ => throw new InvalidOperationException("Unknown comparison operator.")
             });
         }
@@ -387,7 +473,8 @@ internal static partial class SpecificationQueryCompiler
                 or TokenType.GreaterThan
                 or TokenType.GreaterThanOrEqual
                 or TokenType.LessThan
-                or TokenType.LessThanOrEqual;
+                or TokenType.LessThanOrEqual
+                or TokenType.Like;
         }
 
         private bool Match(TokenType tokenType)
@@ -585,6 +672,12 @@ internal static partial class SpecificationQueryCompiler
                         continue;
                     }
 
+                    if (tokenText.Equals("like", StringComparison.OrdinalIgnoreCase))
+                    {
+                        tokens.Add(new Token(TokenType.Like, tokenText));
+                        continue;
+                    }
+
                     if (tokenText.Equals("true", StringComparison.OrdinalIgnoreCase)
                         || tokenText.Equals("false", StringComparison.OrdinalIgnoreCase))
                     {
@@ -627,6 +720,7 @@ internal static partial class SpecificationQueryCompiler
         GreaterThanOrEqual,
         LessThan,
         LessThanOrEqual,
+        Like,
         And,
         Or,
         Not,
@@ -649,7 +743,8 @@ internal static partial class SpecificationQueryCompiler
         GreaterThan,
         GreaterThanOrEqual,
         LessThan,
-        LessThanOrEqual
+        LessThanOrEqual,
+        Like
     }
 
     private enum LogicalOperator

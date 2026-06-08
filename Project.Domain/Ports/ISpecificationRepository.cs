@@ -19,4 +19,6 @@ public interface ISpecificationRepository
     Task<string?> GetValueByPathAsync(string serialCode, string path, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> QuerySerialCodesAsync(SpecQueryCondition condition, CancellationToken cancellationToken = default);
 }
