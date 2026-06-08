@@ -141,11 +141,13 @@
                             <Setter Property="BorderThickness" Value="0"/>
                             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                             <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="#1F2933"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                             <Style.Triggers>
                                 <Trigger Property="IsSelected" Value="True">
                                     <Setter Property="Background" Value="Transparent"/>
                                     <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Foreground" Value="#111827"/>
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocusWithin" Value="True">
                                     <Setter Property="BorderThickness" Value="0"/>
