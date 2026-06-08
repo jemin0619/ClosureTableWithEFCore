@@ -46,14 +46,44 @@
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBox Grid.Row="0" Margin="0,0,0,8"
-                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0"
+                             Margin="0,0,8,0"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Button Grid.Column="1"
+                            Width="70"
+                            Command="{Binding ToggleDetailSearchCommand}"
+                            Content="상세"/>
+                </Grid>
+
+                <StackPanel Grid.Row="1"
+                            Margin="0,0,0,8"
+                            Visibility="{Binding IsDetailSearchVisible, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBox Text="{Binding DetailQueryText, UpdateSourceTrigger=PropertyChanged}"/>
+                        </StackPanel>
+                        <Button Width="90"
+                                Grid.Column="1"
+                                Command="{Binding SearchByDetailQueryCommand}"
+                                Content="쿼리 검색"/>
+                    </Grid>
+                </StackPanel>
 
                 <DataGrid x:Name="CandidateGrid"
-                          Grid.Row="1"
+                          Grid.Row="2"
                           ItemsSource="{Binding CandidateSerialCodes}"
                           SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}"
                           AutoGenerateColumns="False"

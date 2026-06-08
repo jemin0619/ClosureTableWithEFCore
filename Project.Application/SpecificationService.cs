@@ -21,6 +21,9 @@ public interface ISpecificationService
     Task<string?> GetSpecValueAsync(string serialCode, string path, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<string>> ListSerialCodesAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> QuerySerialCodesAsync<TSpecification>(string query, CancellationToken cancellationToken = default)
+        where TSpecification : class, new();
 }
 
 public sealed class SpecificationService(ISpecificationRepository specificationRepository) : ISpecificationService, ISpecValueReader
@@ -66,6 +69,17 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
         return _specificationRepository.ListSerialCodesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<string>> QuerySerialCodesAsync<TSpecification>(string query, CancellationToken cancellationToken = default)
+        where TSpecification : class, new()
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return await ListSerialCodesAsync(cancellationToken);
+        }
+
+        var condition = SpecificationQueryCompiler.BuildDbCondition(query);
+        return await _specificationRepository.QuerySerialCodesAsync(condition, cancellationToken);
+    }
     Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)
     {
         return GetSpecValueAsync(serialCode, path, cancellationToken);

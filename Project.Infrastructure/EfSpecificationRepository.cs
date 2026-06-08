@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Project.Domain;
 using Project.Domain.Ports;
 using Project.Infrastructure.Entities;
+using System.Globalization;
 
 namespace Project.Infrastructure;
 
@@ -123,6 +125,172 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
             .OrderBy(x => x.SerialCode)
             .Select(x => x.SerialCode)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> QuerySerialCodesAsync(SpecQueryCondition condition, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        var codes = await ResolveConditionAsync(condition, cancellationToken);
+        return codes.OrderBy(x => x).ToList();
+    }
+
+    private async Task<HashSet<string>> ResolveConditionAsync(SpecQueryCondition condition, CancellationToken ct)
+    {
+        return condition switch
+        {
+            LeafSpecQueryCondition leaf => await ResolveLeafAsync(leaf, ct),
+            AndSpecQueryCondition and => await ResolveAndAsync(and, ct),
+            OrSpecQueryCondition or => await ResolveOrAsync(or, ct),
+            NotSpecQueryCondition not => await ResolveNotAsync(not, ct),
+            _ => throw new InvalidOperationException("지원하지 않는 조건 타입이야.")
+        };
+    }
+
+    private async Task<HashSet<string>> ResolveLeafAsync(LeafSpecQueryCondition leaf, CancellationToken ct)
+    {
+        var leafKey = leaf.PathSegments[^1];
+        var ancestorKeys = leaf.PathSegments.Length > 1 ? leaf.PathSegments[..^1] : [];
+
+        var matchingIds = await FetchMatchingNodeIdsAsync(leafKey, leaf.Operator, leaf.Value, ct);
+        if (matchingIds.Count == 0)
+        {
+            return [];
+        }
+
+        matchingIds = await FilterByAncestorChainAsync(matchingIds, ancestorKeys, ct);
+        if (matchingIds.Count == 0)
+        {
+            return [];
+        }
+
+        var serialCodes = await _dbContext.SpecSerialRoots
+            .AsNoTracking()
+            .Where(sr => _dbContext.SpecClosures.Any(sc =>
+                sc.AncestorId == sr.RootNodeId && matchingIds.Contains(sc.DescendantId)))
+            .Select(sr => sr.SerialCode)
+            .ToListAsync(ct);
+
+        return [.. serialCodes];
+    }
+
+    private async Task<List<int>> FetchMatchingNodeIdsAsync(string key, SpecQueryOperator op, string value, CancellationToken ct)
+    {
+        if (op == SpecQueryOperator.Equal)
+        {
+            return await _dbContext.SpecNodes
+                .AsNoTracking()
+                .Where(n => n.Key == key && n.Value == value)
+                .Select(n => n.Id)
+                .ToListAsync(ct);
+        }
+
+        if (op == SpecQueryOperator.Like)
+        {
+            return await _dbContext.SpecNodes
+                .AsNoTracking()
+                .Where(n => n.Key == key && n.Value != null && n.Value.Contains(value))
+                .Select(n => n.Id)
+                .ToListAsync(ct);
+        }
+
+        // >, <, >=, <= : key로 후보를 가져온 뒤 메모리에서 값 비교 (숫자 정확도 보장)
+        var candidates = await _dbContext.SpecNodes
+            .AsNoTracking()
+            .Where(n => n.Key == key && n.Value != null)
+            .Select(n => new { n.Id, n.Value })
+            .ToListAsync(ct);
+
+        return candidates
+            .Where(x => CompareNodeValues(x.Value!, value, op))
+            .Select(x => x.Id)
+            .ToList();
+    }
+
+    private static bool CompareNodeValues(string nodeValue, string queryValue, SpecQueryOperator op)
+    {
+        if (decimal.TryParse(nodeValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var nodeDecimal)
+            && decimal.TryParse(queryValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var queryDecimal))
+        {
+            return op switch
+            {
+                SpecQueryOperator.GreaterThan => nodeDecimal > queryDecimal,
+                SpecQueryOperator.GreaterThanOrEqual => nodeDecimal >= queryDecimal,
+                SpecQueryOperator.LessThan => nodeDecimal < queryDecimal,
+                SpecQueryOperator.LessThanOrEqual => nodeDecimal <= queryDecimal,
+                _ => false
+            };
+        }
+
+        var cmp = string.Compare(nodeValue, queryValue, StringComparison.OrdinalIgnoreCase);
+        return op switch
+        {
+            SpecQueryOperator.GreaterThan => cmp > 0,
+            SpecQueryOperator.GreaterThanOrEqual => cmp >= 0,
+            SpecQueryOperator.LessThan => cmp < 0,
+            SpecQueryOperator.LessThanOrEqual => cmp <= 0,
+            _ => false
+        };
+    }
+
+    private async Task<List<int>> FilterByAncestorChainAsync(List<int> nodeIds, string[] ancestorKeys, CancellationToken ct)
+    {
+        // ancestorKeys[0] 이 루트에 가장 가깝고, ancestorKeys[^1] 이 리프에 가장 가까운 부모
+        // ancestorKeys[i] 에서 리프까지의 depth = ancestorKeys.Length - i
+        for (int i = 0; i < ancestorKeys.Length; i++)
+        {
+            if (nodeIds.Count == 0)
+            {
+                break;
+            }
+
+            int depth = ancestorKeys.Length - i;
+            string ancestorKey = ancestorKeys[i];
+            var currentIds = nodeIds;
+
+            nodeIds = await _dbContext.SpecClosures
+                .AsNoTracking()
+                .Where(sc => currentIds.Contains(sc.DescendantId)
+                             && sc.Depth == depth
+                             && _dbContext.SpecNodes.Any(an => an.Id == sc.AncestorId && an.Key == ancestorKey))
+                .Select(sc => sc.DescendantId)
+                .Distinct()
+                .ToListAsync(ct);
+        }
+
+        return nodeIds;
+    }
+
+    private async Task<HashSet<string>> ResolveAndAsync(AndSpecQueryCondition and, CancellationToken ct)
+    {
+        var left = await ResolveConditionAsync(and.Left, ct);
+        if (left.Count == 0)
+        {
+            return left;
+        }
+
+        var right = await ResolveConditionAsync(and.Right, ct);
+        left.IntersectWith(right);
+        return left;
+    }
+
+    private async Task<HashSet<string>> ResolveOrAsync(OrSpecQueryCondition or, CancellationToken ct)
+    {
+        var left = await ResolveConditionAsync(or.Left, ct);
+        var right = await ResolveConditionAsync(or.Right, ct);
+        left.UnionWith(right);
+        return left;
+    }
+
+    private async Task<HashSet<string>> ResolveNotAsync(NotSpecQueryCondition not, CancellationToken ct)
+    {
+        var inner = await ResolveConditionAsync(not.Inner, ct);
+        var all = await _dbContext.SpecSerialRoots
+            .AsNoTracking()
+            .Select(sr => sr.SerialCode)
+            .ToListAsync(ct);
+        var result = new HashSet<string>(all, StringComparer.Ordinal);
+        result.ExceptWith(inner);
+        return result;
     }
 
     public async Task<bool> DeleteAsync(string serialCode, CancellationToken cancellationToken = default)

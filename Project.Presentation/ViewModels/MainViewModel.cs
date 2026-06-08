@@ -14,8 +14,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ISpecificationService _specificationService;
 
     private string _searchText = string.Empty;
+    private string _detailQueryText = string.Empty;
     private string? _selectedCandidate;
     private bool _isEditMode;
+    private bool _isDetailSearchVisible;
     private string? _editingSerialCode;
     private string _toastMessage = string.Empty;
     private bool _isToastVisible;
@@ -25,6 +27,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ObservableCollection<string> _serialCodes = [];
     private ObservableCollection<string> _candidateSerialCodes = [];
     private ObservableCollection<SpecNodeViewModel> _specNodes = [];
+    private IReadOnlyList<string>? _queryFilteredSerialCodes;
     private CancellationTokenSource? _toastCancellationTokenSource;
 
     public string SearchText
@@ -40,6 +43,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ApplyCandidateFilter();
             OnPropertyChanged(nameof(TargetSerialLabel));
         }
+    }
+
+    public string DetailQueryText
+    {
+        get => _detailQueryText;
+        set => SetField(ref _detailQueryText, value);
     }
 
     public string? SelectedCandidate
@@ -61,6 +70,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(PrimaryActionButtonText));
             OnPropertyChanged(nameof(TargetSerialLabel));
         }
+    }
+
+    public bool IsDetailSearchVisible
+    {
+        get => _isDetailSearchVisible;
+        set => SetField(ref _isDetailSearchVisible, value);
     }
 
     public string PrimaryActionButtonText => IsEditMode ? "Update" : "Create";
@@ -119,6 +134,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ICommand PrimaryActionCommand { get; }
     public ICommand ClearCommand { get; }
+    public ICommand ToggleDetailSearchCommand { get; }
+    public ICommand SearchByDetailQueryCommand { get; }
     public ICommand StartEditCommand { get; }
     public ICommand DeleteCandidateCommand { get; }
     public ICommand CopyCandidateCommand { get; }
@@ -128,6 +145,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _specificationService = specificationService;
         PrimaryActionCommand = new AsyncRelayCommand(PrimaryActionAsync);
         ClearCommand = new AsyncRelayCommand(ClearAsync);
+        ToggleDetailSearchCommand = new AsyncRelayCommand(ToggleDetailSearchAsync);
+        SearchByDetailQueryCommand = new AsyncRelayCommand(SearchByDetailQueryAsync);
         StartEditCommand = new AsyncRelayCommand<string>(StartEditAsync);
         DeleteCandidateCommand = new AsyncRelayCommand<string>(DeleteCandidateAsync);
         CopyCandidateCommand = new AsyncRelayCommand<string>(CopyCandidateAsync);
@@ -280,11 +299,51 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Task ClearAsync()
     {
         SearchText = string.Empty;
+        DetailQueryText = string.Empty;
         SelectedCandidate = null;
+        _queryFilteredSerialCodes = null;
         ExitEditMode();
+        ApplyCandidateFilter();
         ResetSpecNodes(new Specification());
         ShowToast("입력값을 모두 초기화했어.", ToastKind.Info);
         return Task.CompletedTask;
+    }
+
+    private Task ToggleDetailSearchAsync()
+    {
+        IsDetailSearchVisible = !IsDetailSearchVisible;
+
+        if (!IsDetailSearchVisible)
+        {
+            DetailQueryText = string.Empty;
+            _queryFilteredSerialCodes = null;
+            ApplyCandidateFilter();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task SearchByDetailQueryAsync()
+    {
+        try
+        {
+            var query = DetailQueryText.Trim();
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                _queryFilteredSerialCodes = null;
+                ApplyCandidateFilter();
+                ShowToast("상세 쿼리를 입력해줘.", ToastKind.Warning);
+                return;
+            }
+
+            _queryFilteredSerialCodes = await _specificationService.QuerySerialCodesAsync<Specification>(query);
+            ApplyCandidateFilter();
+            ShowToast($"상세 쿼리 결과 {CandidateSerialCodes.Count}건을 찾았어.", ToastKind.Info);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"상세 검색 실패: {ex.Message}", ToastKind.Error);
+        }
     }
 
     private void ExitEditMode()
@@ -342,9 +401,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ApplyCandidateFilter()
     {
         var keyword = SearchText.Trim();
+        var source = _queryFilteredSerialCodes ?? SerialCodes;
         var filtered = string.IsNullOrWhiteSpace(keyword)
-            ? SerialCodes.ToList()
-            : SerialCodes
+            ? source.ToList()
+            : source
                 .Where(x => x.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
