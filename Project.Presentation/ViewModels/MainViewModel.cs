@@ -264,21 +264,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task RefreshSerialsAsync(string? selectedSerialCode = null)
     {
-        var codes = await _specificationService.ListSerialCodesAsync();
-        var codeList = codes.ToList();
-
-        SerialCodes = new ObservableCollection<string>(codeList);
-        ApplyCandidateFilter();
-
-        SelectedCandidate = !string.IsNullOrWhiteSpace(selectedSerialCode) && codeList.Contains(selectedSerialCode)
-            ? selectedSerialCode
-            : SelectedCandidate is not null && codeList.Contains(SelectedCandidate)
-                ? SelectedCandidate
-                : null;
-
-        if (codeList.Count == 0)
+        try
         {
-            ShowToast("저장된 식별자가 아직 없어.", ToastKind.Info);
+            var codes = await _specificationService.ListSerialCodesAsync();
+            var codeList = codes.ToList();
+
+            SerialCodes = new ObservableCollection<string>(codeList);
+            ApplyCandidateFilter();
+
+            SelectedCandidate = !string.IsNullOrWhiteSpace(selectedSerialCode) && codeList.Contains(selectedSerialCode)
+                ? selectedSerialCode
+                : SelectedCandidate is not null && codeList.Contains(SelectedCandidate)
+                    ? SelectedCandidate
+                    : null;
+
+            if (codeList.Count == 0)
+            {
+                ShowToast("저장된 식별자가 아직 없어.", ToastKind.Info);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"목록 조회 실패: {ex.Message}", ToastKind.Error);
         }
     }
 

@@ -71,7 +71,8 @@ public sealed class AsyncRelayCommand<T> : ICommand
                 return;
             }
 
-            await _execute((T?)Convert.ChangeType(parameter, typeof(T)));
+            throw new InvalidOperationException(
+                $"Invalid command parameter type. Expected {typeof(T).Name}, actual {parameter.GetType().Name}.");
         }
         catch (Exception ex)
         {
