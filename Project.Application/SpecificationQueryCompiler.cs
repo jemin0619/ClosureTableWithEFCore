@@ -90,8 +90,16 @@ internal static partial class SpecificationQueryCompiler
         if (node is ArithmeticOperandNode arith)
         {
             // 상수 산술식만 허용: 경로 없이 리터럴만으로 이루어진 식을 상수 폴딩
-            var folded = FoldArithmeticConstant(arith);
-            return Convert.ToString(folded, CultureInfo.InvariantCulture) ?? string.Empty;
+            try
+            {
+                var folded = FoldArithmeticConstant(arith);
+                return Convert.ToString(folded, CultureInfo.InvariantCulture) ?? string.Empty;
+            }
+            catch (InvalidOperationException inner)
+            {
+                throw new InvalidOperationException(
+                    "비교식의 오른쪽 산술식에는 상수만 사용할 수 있어 (경로 포함 불가).", inner);
+            }
         }
 
         throw new InvalidOperationException("비교식의 오른쪽은 리터럴이거나 단순 식별자여야 해.");
@@ -501,7 +509,6 @@ internal static partial class SpecificationQueryCompiler
         }
 
         // Handles optional comparison operator between two additive expressions.
-        // Also serves as the "primary" entry for standalone operands / grouped sub-expressions.
         private AstNode ParseComparison()
         {
             var left = ParseAdditive();
@@ -636,8 +643,8 @@ internal static partial class SpecificationQueryCompiler
         {
             var tokens = new List<Token>();
             var index = 0;
-            // Tracks the last emitted token type to distinguish unary vs binary '-'.
-            TokenType? lastEmitted = null;
+            // Tracks the last emitted token type to distinguish binary '-' (subtraction) from a negative number literal.
+            TokenType? lastEmittedTokenType = null;
 
             while (index < query.Length)
             {
@@ -652,40 +659,40 @@ internal static partial class SpecificationQueryCompiler
                 {
                     case '(':
                         tokens.Add(new Token(TokenType.OpenParenthesis, "("));
-                        lastEmitted = TokenType.OpenParenthesis;
+                        lastEmittedTokenType = TokenType.OpenParenthesis;
                         index++;
                         continue;
                     case ')':
                         tokens.Add(new Token(TokenType.CloseParenthesis, ")"));
-                        lastEmitted = TokenType.CloseParenthesis;
+                        lastEmittedTokenType = TokenType.CloseParenthesis;
                         index++;
                         continue;
                     case '+':
                         tokens.Add(new Token(TokenType.Plus, "+"));
-                        lastEmitted = TokenType.Plus;
+                        lastEmittedTokenType = TokenType.Plus;
                         index++;
                         continue;
                     case '*':
                         tokens.Add(new Token(TokenType.Multiply, "*"));
-                        lastEmitted = TokenType.Multiply;
+                        lastEmittedTokenType = TokenType.Multiply;
                         index++;
                         continue;
                     case '/':
                         tokens.Add(new Token(TokenType.Divide, "/"));
-                        lastEmitted = TokenType.Divide;
+                        lastEmittedTokenType = TokenType.Divide;
                         index++;
                         continue;
                     case '>':
                         if (index + 1 < query.Length && query[index + 1] == '=')
                         {
                             tokens.Add(new Token(TokenType.GreaterThanOrEqual, ">="));
-                            lastEmitted = TokenType.GreaterThanOrEqual;
+                            lastEmittedTokenType = TokenType.GreaterThanOrEqual;
                             index += 2;
                         }
                         else
                         {
                             tokens.Add(new Token(TokenType.GreaterThan, ">"));
-                            lastEmitted = TokenType.GreaterThan;
+                            lastEmittedTokenType = TokenType.GreaterThan;
                             index++;
                         }
 
@@ -694,13 +701,13 @@ internal static partial class SpecificationQueryCompiler
                         if (index + 1 < query.Length && query[index + 1] == '=')
                         {
                             tokens.Add(new Token(TokenType.LessThanOrEqual, "<="));
-                            lastEmitted = TokenType.LessThanOrEqual;
+                            lastEmittedTokenType = TokenType.LessThanOrEqual;
                             index += 2;
                         }
                         else
                         {
                             tokens.Add(new Token(TokenType.LessThan, "<"));
-                            lastEmitted = TokenType.LessThan;
+                            lastEmittedTokenType = TokenType.LessThan;
                             index++;
                         }
 
@@ -709,13 +716,13 @@ internal static partial class SpecificationQueryCompiler
                         if (index + 1 < query.Length && query[index + 1] == '=')
                         {
                             tokens.Add(new Token(TokenType.Equal, "=="));
-                            lastEmitted = TokenType.Equal;
+                            lastEmittedTokenType = TokenType.Equal;
                             index += 2;
                         }
                         else
                         {
                             tokens.Add(new Token(TokenType.Equal, "="));
-                            lastEmitted = TokenType.Equal;
+                            lastEmittedTokenType = TokenType.Equal;
                             index++;
                         }
 
@@ -724,7 +731,7 @@ internal static partial class SpecificationQueryCompiler
                         if (index + 1 < query.Length && query[index + 1] == '&')
                         {
                             tokens.Add(new Token(TokenType.And, "&&"));
-                            lastEmitted = TokenType.And;
+                            lastEmittedTokenType = TokenType.And;
                             index += 2;
                             continue;
                         }
@@ -734,7 +741,7 @@ internal static partial class SpecificationQueryCompiler
                         if (index + 1 < query.Length && query[index + 1] == '|')
                         {
                             tokens.Add(new Token(TokenType.Or, "||"));
-                            lastEmitted = TokenType.Or;
+                            lastEmittedTokenType = TokenType.Or;
                             index += 2;
                             continue;
                         }
@@ -742,7 +749,7 @@ internal static partial class SpecificationQueryCompiler
                         break;
                     case '!':
                         tokens.Add(new Token(TokenType.Not, "!"));
-                        lastEmitted = TokenType.Not;
+                        lastEmittedTokenType = TokenType.Not;
                         index++;
                         continue;
                     case '"':
@@ -763,16 +770,16 @@ internal static partial class SpecificationQueryCompiler
 
                             var text = query[start..index];
                             tokens.Add(new Token(TokenType.String, text));
-                            lastEmitted = TokenType.String;
+                            lastEmittedTokenType = TokenType.String;
                             index++;
                             continue;
                         }
                 }
 
-                // '-': binary subtraction when preceded by an operand-ending token; unary (negative number) otherwise.
+                // '-': binary subtraction when preceded by an operand-ending token; negative number literal otherwise.
                 if (current == '-')
                 {
-                    bool isAfterOperand = lastEmitted is TokenType.Identifier
+                    bool isAfterOperand = lastEmittedTokenType is TokenType.Identifier
                         or TokenType.Number
                         or TokenType.String
                         or TokenType.Boolean
@@ -781,12 +788,12 @@ internal static partial class SpecificationQueryCompiler
                     if (isAfterOperand)
                     {
                         tokens.Add(new Token(TokenType.Minus, "-"));
-                        lastEmitted = TokenType.Minus;
+                        lastEmittedTokenType = TokenType.Minus;
                         index++;
                         continue;
                     }
 
-                    // unary minus: must be followed by a digit to form a negative number literal
+                    // negative number literal: '-' must be followed by a digit
                     if (index + 1 < query.Length && char.IsDigit(query[index + 1]))
                     {
                         var start = index;
@@ -797,7 +804,7 @@ internal static partial class SpecificationQueryCompiler
                         }
 
                         tokens.Add(new Token(TokenType.Number, query[start..index]));
-                        lastEmitted = TokenType.Number;
+                        lastEmittedTokenType = TokenType.Number;
                         continue;
                     }
 
@@ -814,7 +821,7 @@ internal static partial class SpecificationQueryCompiler
                     }
 
                     tokens.Add(new Token(TokenType.Number, query[start..index]));
-                    lastEmitted = TokenType.Number;
+                    lastEmittedTokenType = TokenType.Number;
                     continue;
                 }
 
@@ -831,28 +838,28 @@ internal static partial class SpecificationQueryCompiler
                     if (tokenText.Equals("and", StringComparison.OrdinalIgnoreCase))
                     {
                         tokens.Add(new Token(TokenType.And, tokenText));
-                        lastEmitted = TokenType.And;
+                        lastEmittedTokenType = TokenType.And;
                         continue;
                     }
 
                     if (tokenText.Equals("or", StringComparison.OrdinalIgnoreCase))
                     {
                         tokens.Add(new Token(TokenType.Or, tokenText));
-                        lastEmitted = TokenType.Or;
+                        lastEmittedTokenType = TokenType.Or;
                         continue;
                     }
 
                     if (tokenText.Equals("not", StringComparison.OrdinalIgnoreCase))
                     {
                         tokens.Add(new Token(TokenType.Not, tokenText));
-                        lastEmitted = TokenType.Not;
+                        lastEmittedTokenType = TokenType.Not;
                         continue;
                     }
 
                     if (tokenText.Equals("like", StringComparison.OrdinalIgnoreCase))
                     {
                         tokens.Add(new Token(TokenType.Like, tokenText));
-                        lastEmitted = TokenType.Like;
+                        lastEmittedTokenType = TokenType.Like;
                         continue;
                     }
 
@@ -860,12 +867,12 @@ internal static partial class SpecificationQueryCompiler
                         || tokenText.Equals("false", StringComparison.OrdinalIgnoreCase))
                     {
                         tokens.Add(new Token(TokenType.Boolean, tokenText.ToLowerInvariant()));
-                        lastEmitted = TokenType.Boolean;
+                        lastEmittedTokenType = TokenType.Boolean;
                         continue;
                     }
 
                     tokens.Add(new Token(TokenType.Identifier, tokenText));
-                    lastEmitted = TokenType.Identifier;
+                    lastEmittedTokenType = TokenType.Identifier;
                     continue;
                 }
 
