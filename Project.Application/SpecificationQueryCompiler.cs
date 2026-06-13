@@ -39,11 +39,6 @@ internal static partial class SpecificationQueryCompiler
             UnaryLogicalNode notNode =>
                 new NotSpecQueryCondition(ConvertToDbCondition(notNode.Operand)),
             ComparisonNode cmp => ConvertComparisonToDbCondition(cmp),
-            // standalone boolean path: IsActive → LeafSpecQueryCondition(["IsActive"], Equal, "true")
-            PathOperandNode pathNode => new LeafSpecQueryCondition(
-                pathNode.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-                SpecQueryOperator.Equal,
-                "true"),
             _ => throw new InvalidOperationException("DB 조건으로 변환할 수 없는 쿼리야.")
         };
     }
@@ -156,7 +151,6 @@ internal static partial class SpecificationQueryCompiler
             },
             UnaryLogicalNode unaryNode => !EvaluateBooleanExpression(unaryNode.Operand, specification),
             ComparisonNode comparisonNode => EvaluateComparison(comparisonNode, specification),
-            OperandNode operandNode => ConvertToBoolean(EvaluateValue(operandNode, specification)),
             _ => throw new InvalidOperationException("Unsupported AST node.")
         };
     }
@@ -426,21 +420,6 @@ internal static partial class SpecificationQueryCompiler
         }
 
         throw new InvalidOperationException($"'{enumText}'은(는) {enumType.Name} enum 값이 아니야.");
-    }
-
-    private static bool ConvertToBoolean(object? value)
-    {
-        if (value is null)
-        {
-            throw new InvalidOperationException("불리언 식으로 평가할 값이 비어있어.");
-        }
-
-        if (value is bool boolValue)
-        {
-            return boolValue;
-        }
-
-        throw new InvalidOperationException("조건식 결과가 true/false가 아니야.");
     }
 
     private readonly record struct PathResolutionResult(PathResolutionStatus Status, object? Value)
