@@ -43,31 +43,8 @@ internal static partial class SpecificationQueryCompiler
         };
     }
 
-    private static LeafSpecQueryCondition ConvertComparisonToDbCondition(ComparisonNode node)
+    private static ComparisonSpecQueryCondition ConvertComparisonToDbCondition(ComparisonNode node)
     {
-        if (node.Left is not PathOperandNode leftPath)
-        {
-            throw new InvalidOperationException("비교식의 왼쪽은 경로여야 해.");
-        }
-
-        string valueText;
-        if (node.Right is LiteralOperandNode literal)
-        {
-            valueText = literal.Value is null
-                ? string.Empty
-                : Convert.ToString(literal.Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        }
-        else if (node.Right is PathOperandNode rightPath && !rightPath.Path.Contains('.', StringComparison.Ordinal))
-        {
-            // 점(.) 없는 단순 식별자 = enum 리터럴 등 (예: Type == TypeA)
-            valueText = rightPath.Path;
-        }
-        else
-        {
-            throw new InvalidOperationException("비교식의 오른쪽은 리터럴이거나 단순 식별자여야 해.");
-        }
-
-        var pathSegments = leftPath.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var op = node.Operator switch
         {
             ComparisonOperator.Equal => SpecQueryOperator.Equal,
@@ -79,7 +56,33 @@ internal static partial class SpecificationQueryCompiler
             _ => throw new InvalidOperationException("알 수 없는 비교 연산자야.")
         };
 
-        return new LeafSpecQueryCondition(pathSegments, op, valueText);
+        return new ComparisonSpecQueryCondition(
+            ConvertOperandToDbOperand(node.Left),
+            op,
+            ConvertOperandToDbOperand(node.Right));
+    }
+
+    private static SpecQueryOperand ConvertOperandToDbOperand(OperandNode node)
+    {
+        return node switch
+        {
+            PathOperandNode pathNode => new PathSpecQueryOperand(pathNode.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+            LiteralOperandNode literalNode => new LiteralSpecQueryOperand(literalNode.Value),
+            BinaryArithmeticOperandNode binaryNode => new BinaryArithmeticSpecQueryOperand(
+                binaryNode.Operator switch
+                {
+                    ArithmeticOperator.Add => SpecQueryArithmeticOperator.Add,
+                    ArithmeticOperator.Subtract => SpecQueryArithmeticOperator.Subtract,
+                    ArithmeticOperator.Multiply => SpecQueryArithmeticOperator.Multiply,
+                    ArithmeticOperator.Divide => SpecQueryArithmeticOperator.Divide,
+                    _ => throw new InvalidOperationException("알 수 없는 산술 연산자야.")
+                },
+                ConvertOperandToDbOperand(binaryNode.Left),
+                ConvertOperandToDbOperand(binaryNode.Right)),
+            UnaryArithmeticOperandNode unaryNode => new UnaryArithmeticSpecQueryOperand(
+                ConvertOperandToDbOperand(unaryNode.Operand)),
+            _ => throw new InvalidOperationException("DB 조건으로 변환할 수 없는 피연산자야.")
+        };
     }
 
     private static bool EvaluateBooleanExpression(AstNode node, object? specification)
@@ -151,8 +154,45 @@ internal static partial class SpecificationQueryCompiler
         {
             LiteralOperandNode literalNode => literalNode.Value,
             PathOperandNode pathNode => ResolveComparisonPathOperand(specification, pathNode.Path, expectedEnumType),
+            BinaryArithmeticOperandNode binaryNode => EvaluateArithmetic(binaryNode, specification),
+            UnaryArithmeticOperandNode unaryNode => EvaluateUnaryArithmetic(unaryNode, specification),
             _ => throw new InvalidOperationException("Unsupported operand node.")
         };
+    }
+
+    private static object EvaluateArithmetic(BinaryArithmeticOperandNode node, object specification)
+    {
+        var left = EvaluateOperand(node.Left, specification);
+        var right = EvaluateOperand(node.Right, specification);
+        var leftValue = ConvertToArithmeticValue(left);
+        var rightValue = ConvertToArithmeticValue(right);
+
+        return node.Operator switch
+        {
+            ArithmeticOperator.Add => leftValue + rightValue,
+            ArithmeticOperator.Subtract => leftValue - rightValue,
+            ArithmeticOperator.Multiply => leftValue * rightValue,
+            ArithmeticOperator.Divide => rightValue == decimal.Zero
+                ? throw new InvalidOperationException("0으로 나눌 수 없어.")
+                : leftValue / rightValue,
+            _ => throw new InvalidOperationException("Unknown arithmetic operator.")
+        };
+    }
+
+    private static object EvaluateUnaryArithmetic(UnaryArithmeticOperandNode node, object specification)
+    {
+        var value = EvaluateOperand(node.Operand, specification);
+        return -ConvertToArithmeticValue(value);
+    }
+
+    private static decimal ConvertToArithmeticValue(object? value)
+    {
+        if (value is null || !TryConvertToDecimal(value, out var converted))
+        {
+            throw new InvalidOperationException("산술 연산은 숫자 값에만 사용할 수 있어.");
+        }
+
+        return converted;
     }
 
     private static object? ResolveComparisonPathOperand(object root, string path, Type? expectedEnumType)
@@ -434,14 +474,14 @@ internal static partial class SpecificationQueryCompiler
 
         private AstNode ParseComparisonOrOperand()
         {
-            var left = ParseOperand();
+            var left = ParseArithmeticOperand();
             if (!CurrentIsComparison())
             {
                 return left;
             }
 
             var comparisonOperatorToken = Next();
-            var right = ParseOperand();
+            var right = ParseArithmeticOperand();
             return new ComparisonNode(left, right, comparisonOperatorToken.Type switch
             {
                 TokenType.Equal => ComparisonOperator.Equal,
@@ -454,8 +494,62 @@ internal static partial class SpecificationQueryCompiler
             });
         }
 
-        private OperandNode ParseOperand()
+        private OperandNode ParseArithmeticOperand()
         {
+            return ParseAdditiveOperand();
+        }
+
+        private OperandNode ParseAdditiveOperand()
+        {
+            var left = ParseMultiplicativeOperand();
+            while (Peek().Type is TokenType.Plus or TokenType.Minus)
+            {
+                var operatorToken = Next().Type;
+                var right = ParseMultiplicativeOperand();
+                left = new BinaryArithmeticOperandNode(
+                    operatorToken == TokenType.Plus ? ArithmeticOperator.Add : ArithmeticOperator.Subtract,
+                    left,
+                    right);
+            }
+
+            return left;
+        }
+
+        private OperandNode ParseMultiplicativeOperand()
+        {
+            var left = ParseUnaryArithmeticOperand();
+            while (Peek().Type is TokenType.Asterisk or TokenType.Slash)
+            {
+                var operatorToken = Next().Type;
+                var right = ParseUnaryArithmeticOperand();
+                left = new BinaryArithmeticOperandNode(
+                    operatorToken == TokenType.Asterisk ? ArithmeticOperator.Multiply : ArithmeticOperator.Divide,
+                    left,
+                    right);
+            }
+
+            return left;
+        }
+
+        private OperandNode ParseUnaryArithmeticOperand()
+        {
+            if (Match(TokenType.Minus))
+            {
+                return new UnaryArithmeticOperandNode(ParseUnaryArithmeticOperand());
+            }
+
+            return ParseOperandAtom();
+        }
+
+        private OperandNode ParseOperandAtom()
+        {
+            if (Match(TokenType.OpenParenthesis))
+            {
+                var nested = ParseArithmeticOperand();
+                Expect(TokenType.CloseParenthesis);
+                return nested;
+            }
+
             var token = Next();
             return token.Type switch
             {
@@ -586,6 +680,22 @@ internal static partial class SpecificationQueryCompiler
                         }
 
                         continue;
+                    case '+':
+                        tokens.Add(new Token(TokenType.Plus, "+"));
+                        index++;
+                        continue;
+                    case '-':
+                        tokens.Add(new Token(TokenType.Minus, "-"));
+                        index++;
+                        continue;
+                    case '*':
+                        tokens.Add(new Token(TokenType.Asterisk, "*"));
+                        index++;
+                        continue;
+                    case '/':
+                        tokens.Add(new Token(TokenType.Slash, "/"));
+                        index++;
+                        continue;
                     case '&':
                         if (index + 1 < query.Length && query[index + 1] == '&')
                         {
@@ -631,7 +741,7 @@ internal static partial class SpecificationQueryCompiler
                         }
                 }
 
-                if (char.IsDigit(current) || current == '-' && index + 1 < query.Length && char.IsDigit(query[index + 1]))
+                if (char.IsDigit(current))
                 {
                     var start = index;
                     index++;
@@ -715,6 +825,10 @@ internal static partial class SpecificationQueryCompiler
         Number,
         String,
         Boolean,
+        Plus,
+        Minus,
+        Asterisk,
+        Slash,
         Equal,
         GreaterThan,
         GreaterThanOrEqual,
@@ -733,6 +847,8 @@ internal static partial class SpecificationQueryCompiler
     private abstract record OperandNode : AstNode;
     private sealed record PathOperandNode(string Path) : OperandNode;
     private sealed record LiteralOperandNode(object? Value) : OperandNode;
+    private sealed record BinaryArithmeticOperandNode(ArithmeticOperator Operator, OperandNode Left, OperandNode Right) : OperandNode;
+    private sealed record UnaryArithmeticOperandNode(OperandNode Operand) : OperandNode;
     private sealed record ComparisonNode(OperandNode Left, OperandNode Right, ComparisonOperator Operator) : AstNode;
     private sealed record BinaryLogicalNode(LogicalOperator Operator, AstNode Left, AstNode Right) : AstNode;
     private sealed record UnaryLogicalNode(AstNode Operand) : AstNode;
@@ -751,5 +867,13 @@ internal static partial class SpecificationQueryCompiler
     {
         And,
         Or
+    }
+
+    private enum ArithmeticOperator
+    {
+        Add,
+        Subtract,
+        Multiply,
+        Divide
     }
 }

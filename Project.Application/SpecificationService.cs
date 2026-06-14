@@ -28,6 +28,7 @@ public interface ISpecificationService
 
 public sealed class SpecificationService(ISpecificationRepository specificationRepository) : ISpecificationService, ISpecValueReader
 {
+    private const int InMemoryQueryParallelism = 8;
     private readonly ISpecificationRepository _specificationRepository = specificationRepository;
 
     public Task CreateSpecificationAsync<TSpecification>(string serialCode, TSpecification specification, CancellationToken cancellationToken = default)
@@ -77,8 +78,37 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
             return await ListSerialCodesAsync(cancellationToken);
         }
 
-        var condition = SpecificationQueryCompiler.BuildDbCondition(query);
-        return await _specificationRepository.QuerySerialCodesAsync(condition, cancellationToken);
+        try
+        {
+            var condition = SpecificationQueryCompiler.BuildDbCondition(query);
+            return await _specificationRepository.QuerySerialCodesAsync(condition, cancellationToken);
+        }
+        catch (NotSupportedException)
+        {
+            var predicate = SpecificationQueryCompiler.Compile<TSpecification>(query);
+            var serialCodes = await ListSerialCodesAsync(cancellationToken);
+            var matches = new bool[serialCodes.Count];
+            using var throttler = new SemaphoreSlim(InMemoryQueryParallelism);
+
+            var tasks = serialCodes.Select((serialCode, index) => EvaluateWithThrottleAsync(serialCode, index));
+            await Task.WhenAll(tasks);
+            return serialCodes.Where((_, index) => matches[index]).ToList();
+
+            async Task EvaluateWithThrottleAsync(string serialCode, int index)
+            {
+                await throttler.WaitAsync(cancellationToken);
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var specification = await LoadSpecificationAsync<TSpecification>(serialCode, cancellationToken);
+                    matches[index] = specification is not null && predicate(specification);
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            }
+        }
     }
     Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)
     {
