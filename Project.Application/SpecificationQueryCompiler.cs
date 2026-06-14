@@ -43,31 +43,8 @@ internal static partial class SpecificationQueryCompiler
         };
     }
 
-    private static LeafSpecQueryCondition ConvertComparisonToDbCondition(ComparisonNode node)
+    private static ComparisonSpecQueryCondition ConvertComparisonToDbCondition(ComparisonNode node)
     {
-        if (node.Left is not PathOperandNode leftPath)
-        {
-            throw new NotSupportedException("DB 조건에서는 산술식 또는 복합 피연산자를 지원하지 않아.");
-        }
-
-        string valueText;
-        if (node.Right is LiteralOperandNode literal)
-        {
-            valueText = literal.Value is null
-                ? string.Empty
-                : Convert.ToString(literal.Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        }
-        else if (node.Right is PathOperandNode rightPath && !rightPath.Path.Contains('.', StringComparison.Ordinal))
-        {
-            // 점(.) 없는 단순 식별자 = enum 리터럴 등 (예: Type == TypeA)
-            valueText = rightPath.Path;
-        }
-        else
-        {
-            throw new NotSupportedException("DB 조건에서는 산술식 또는 복합 피연산자를 지원하지 않아.");
-        }
-
-        var pathSegments = leftPath.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var op = node.Operator switch
         {
             ComparisonOperator.Equal => SpecQueryOperator.Equal,
@@ -79,7 +56,33 @@ internal static partial class SpecificationQueryCompiler
             _ => throw new InvalidOperationException("알 수 없는 비교 연산자야.")
         };
 
-        return new LeafSpecQueryCondition(pathSegments, op, valueText);
+        return new ComparisonSpecQueryCondition(
+            ConvertOperandToDbOperand(node.Left),
+            op,
+            ConvertOperandToDbOperand(node.Right));
+    }
+
+    private static SpecQueryOperand ConvertOperandToDbOperand(OperandNode node)
+    {
+        return node switch
+        {
+            PathOperandNode pathNode => new PathSpecQueryOperand(pathNode.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+            LiteralOperandNode literalNode => new LiteralSpecQueryOperand(literalNode.Value),
+            BinaryArithmeticOperandNode binaryNode => new BinaryArithmeticSpecQueryOperand(
+                binaryNode.Operator switch
+                {
+                    ArithmeticOperator.Add => SpecQueryArithmeticOperator.Add,
+                    ArithmeticOperator.Subtract => SpecQueryArithmeticOperator.Subtract,
+                    ArithmeticOperator.Multiply => SpecQueryArithmeticOperator.Multiply,
+                    ArithmeticOperator.Divide => SpecQueryArithmeticOperator.Divide,
+                    _ => throw new InvalidOperationException("알 수 없는 산술 연산자야.")
+                },
+                ConvertOperandToDbOperand(binaryNode.Left),
+                ConvertOperandToDbOperand(binaryNode.Right)),
+            UnaryArithmeticOperandNode unaryNode => new UnaryArithmeticSpecQueryOperand(
+                ConvertOperandToDbOperand(unaryNode.Operand)),
+            _ => throw new InvalidOperationException("DB 조건으로 변환할 수 없는 피연산자야.")
+        };
     }
 
     private static bool EvaluateBooleanExpression(AstNode node, object? specification)
