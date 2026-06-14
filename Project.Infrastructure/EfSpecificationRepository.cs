@@ -139,6 +139,7 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
         return condition switch
         {
             LeafSpecQueryCondition leaf => await ResolveLeafAsync(leaf, ct),
+            ArithmeticSpecQueryCondition arith => await ResolveArithmeticConditionAsync(arith, ct),
             AndSpecQueryCondition and => await ResolveAndAsync(and, ct),
             OrSpecQueryCondition or => await ResolveOrAsync(or, ct),
             NotSpecQueryCondition not => await ResolveNotAsync(not, ct),
@@ -258,6 +259,192 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
         }
 
         return nodeIds;
+    }
+
+    private async Task<HashSet<string>> ResolveArithmeticConditionAsync(ArithmeticSpecQueryCondition condition, CancellationToken ct)
+    {
+        // Collect distinct path keys referenced in the operand expressions
+        var pathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectPathKeys(condition.Left, pathKeys);
+        CollectPathKeys(condition.Right, pathKeys);
+
+        // For each path, load a serialCode → value map from the DB
+        var allPathValues = new Dictionary<string, Dictionary<string, string?>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pathKey in pathKeys)
+        {
+            var segments = pathKey.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            allPathValues[pathKey] = await LoadSerialToValueForPathAsync(segments, ct);
+        }
+
+        // Evaluate for each known serial code
+        var allSerials = await _dbContext.SpecSerialRoots
+            .AsNoTracking()
+            .Select(sr => sr.SerialCode)
+            .ToListAsync(ct);
+
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var serialCode in allSerials)
+        {
+            var pathValues = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (pathKey, valueMap) in allPathValues)
+            {
+                if (valueMap.TryGetValue(serialCode, out var val))
+                {
+                    pathValues[pathKey] = val;
+                }
+            }
+
+            if (EvaluateArithmeticCondition(condition, pathValues))
+            {
+                result.Add(serialCode);
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<Dictionary<string, string?>> LoadSerialToValueForPathAsync(string[] pathSegments, CancellationToken ct)
+    {
+        if (pathSegments.Length == 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
+
+        var leafKey = pathSegments[^1];
+        var ancestorKeys = pathSegments.Length > 1 ? pathSegments[..^1] : [];
+
+        // Get all leaf-key candidates with their stored values
+        var candidates = await _dbContext.SpecNodes
+            .AsNoTracking()
+            .Where(n => n.Key == leafKey)
+            .Select(n => new { n.Id, n.Value })
+            .ToListAsync(ct);
+
+        if (candidates.Count == 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
+
+        var matchingIds = candidates.Select(c => c.Id).ToList();
+        if (ancestorKeys.Length > 0)
+        {
+            matchingIds = await FilterByAncestorChainAsync(matchingIds, ancestorKeys, ct);
+        }
+
+        if (matchingIds.Count == 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
+
+        var valueById = candidates.ToDictionary(c => c.Id, c => c.Value);
+        var matchingSet = new HashSet<int>(matchingIds);
+
+        // Closure rows that connect any serial root to a matching leaf node
+        var closureMatches = await _dbContext.SpecClosures
+            .AsNoTracking()
+            .Where(sc => matchingSet.Contains(sc.DescendantId))
+            .Select(sc => new { sc.AncestorId, sc.DescendantId })
+            .ToListAsync(ct);
+
+        // Serial root → serial code lookup
+        var serialRoots = await _dbContext.SpecSerialRoots
+            .AsNoTracking()
+            .Select(sr => new { sr.SerialCode, sr.RootNodeId })
+            .ToListAsync(ct);
+
+        var rootToSerial = serialRoots.ToDictionary(x => x.RootNodeId, x => x.SerialCode);
+
+        var result = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var match in closureMatches)
+        {
+            if (rootToSerial.TryGetValue(match.AncestorId, out var serialCode) && !result.ContainsKey(serialCode))
+            {
+                result[serialCode] = valueById.GetValueOrDefault(match.DescendantId);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool EvaluateArithmeticCondition(ArithmeticSpecQueryCondition condition, Dictionary<string, string?> pathValues)
+    {
+        var left = EvaluateSpecQueryOperandValue(condition.Left, pathValues);
+        var right = EvaluateSpecQueryOperandValue(condition.Right, pathValues);
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        var cmp = left.Value.CompareTo(right.Value);
+        return condition.Operator switch
+        {
+            SpecQueryOperator.Equal => cmp == 0,
+            SpecQueryOperator.GreaterThan => cmp > 0,
+            SpecQueryOperator.GreaterThanOrEqual => cmp >= 0,
+            SpecQueryOperator.LessThan => cmp < 0,
+            SpecQueryOperator.LessThanOrEqual => cmp <= 0,
+            _ => false
+        };
+    }
+
+    private static decimal? EvaluateSpecQueryOperandValue(SpecQueryOperand operand, Dictionary<string, string?> pathValues)
+    {
+        switch (operand)
+        {
+            case LiteralSpecQueryOperand lit:
+                return decimal.TryParse(lit.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var ld)
+                    ? ld
+                    : null;
+
+            case PathSpecQueryOperand path:
+                var key = string.Join(".", path.PathSegments);
+                if (!pathValues.TryGetValue(key, out var valueStr) || valueStr is null)
+                {
+                    return null;
+                }
+
+                return decimal.TryParse(valueStr, NumberStyles.Number, CultureInfo.InvariantCulture, out var pd)
+                    ? pd
+                    : null;
+
+            case BinaryArithmeticSpecQueryOperand arith:
+                var leftVal = EvaluateSpecQueryOperandValue(arith.Left, pathValues);
+                var rightVal = EvaluateSpecQueryOperandValue(arith.Right, pathValues);
+                if (leftVal is null || rightVal is null)
+                {
+                    return null;
+                }
+
+                return arith.Operator switch
+                {
+                    SpecArithmeticOperator.Add => leftVal.Value + rightVal.Value,
+                    SpecArithmeticOperator.Subtract => leftVal.Value - rightVal.Value,
+                    SpecArithmeticOperator.Multiply => leftVal.Value * rightVal.Value,
+                    SpecArithmeticOperator.Divide => rightVal.Value == 0
+                        ? throw new InvalidOperationException("0으로 나눌 수 없어.")
+                        : leftVal.Value / rightVal.Value,
+                    _ => null
+                };
+
+            default:
+                return null;
+        }
+    }
+
+    private static void CollectPathKeys(SpecQueryOperand operand, HashSet<string> keys)
+    {
+        switch (operand)
+        {
+            case PathSpecQueryOperand path:
+                keys.Add(string.Join(".", path.PathSegments));
+                break;
+            case BinaryArithmeticSpecQueryOperand arith:
+                CollectPathKeys(arith.Left, keys);
+                CollectPathKeys(arith.Right, keys);
+                break;
+            // LiteralSpecQueryOperand has no paths
+        }
     }
 
     private async Task<HashSet<string>> ResolveAndAsync(AndSpecQueryCondition and, CancellationToken ct)
