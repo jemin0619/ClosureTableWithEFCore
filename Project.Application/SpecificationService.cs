@@ -28,6 +28,7 @@ public interface ISpecificationService
 
 public sealed class SpecificationService(ISpecificationRepository specificationRepository) : ISpecificationService, ISpecValueReader
 {
+    private const int InMemoryQueryParallelism = 8;
     private readonly ISpecificationRepository _specificationRepository = specificationRepository;
 
     public Task CreateSpecificationAsync<TSpecification>(string serialCode, TSpecification specification, CancellationToken cancellationToken = default)
@@ -87,7 +88,7 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
             var predicate = SpecificationQueryCompiler.Compile<TSpecification>(query);
             var serialCodes = await ListSerialCodesAsync(cancellationToken);
             var matches = new bool[serialCodes.Count];
-            using var throttler = new SemaphoreSlim(8);
+            using var throttler = new SemaphoreSlim(InMemoryQueryParallelism);
 
             var tasks = serialCodes.Select((serialCode, index) => EvaluateWithThrottleAsync(serialCode, index));
             await Task.WhenAll(tasks);

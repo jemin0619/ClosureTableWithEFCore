@@ -169,7 +169,7 @@ internal static partial class SpecificationQueryCompiler
             ArithmeticOperator.Add => leftValue + rightValue,
             ArithmeticOperator.Subtract => leftValue - rightValue,
             ArithmeticOperator.Multiply => leftValue * rightValue,
-            ArithmeticOperator.Divide => rightValue == 0
+            ArithmeticOperator.Divide => rightValue == decimal.Zero
                 ? throw new InvalidOperationException("0으로 나눌 수 없어.")
                 : leftValue / rightValue,
             _ => throw new InvalidOperationException("Unknown arithmetic operator.")
