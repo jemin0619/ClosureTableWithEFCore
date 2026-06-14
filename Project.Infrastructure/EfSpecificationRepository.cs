@@ -284,146 +284,6 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
                 _ => false
             };
         }
-
-        private static bool EvaluateComparison(ComparisonSpecQueryCondition comparison, SpecTreeNode root)
-        {
-            var left = EvaluateOperand(comparison.Left, root);
-            if (comparison.Operator == SpecQueryOperator.Like)
-            {
-                var rightLike = EvaluateOperand(comparison.Right, root);
-                if (left is string leftText && rightLike is string rightText)
-                {
-                    return leftText.Contains(rightText, StringComparison.OrdinalIgnoreCase);
-                }
-
-                return false;
-            }
-
-            var right = EvaluateOperand(comparison.Right, root);
-            var compareResult = CompareOperandValues(left, right);
-            return comparison.Operator switch
-            {
-                SpecQueryOperator.Equal => compareResult == 0,
-                SpecQueryOperator.GreaterThan => compareResult > 0,
-                SpecQueryOperator.GreaterThanOrEqual => compareResult >= 0,
-                SpecQueryOperator.LessThan => compareResult < 0,
-                SpecQueryOperator.LessThanOrEqual => compareResult <= 0,
-                _ => false
-            };
-        }
-
-        private static object? EvaluateOperand(SpecQueryOperand operand, SpecTreeNode root)
-        {
-            return operand switch
-            {
-                PathSpecQueryOperand path => ResolvePathValue(root, path.PathSegments),
-                LiteralSpecQueryOperand literal => literal.Value,
-                BinaryArithmeticSpecQueryOperand binary => EvaluateArithmetic(binary, root),
-                UnaryArithmeticSpecQueryOperand unary => -ConvertToDecimal(EvaluateOperand(unary.Operand, root)),
-                _ => throw new InvalidOperationException("지원하지 않는 피연산자 타입이야.")
-            };
-        }
-
-        private static decimal EvaluateArithmetic(BinaryArithmeticSpecQueryOperand operand, SpecTreeNode root)
-        {
-            var left = ConvertToDecimal(EvaluateOperand(operand.Left, root));
-            var right = ConvertToDecimal(EvaluateOperand(operand.Right, root));
-            return operand.Operator switch
-            {
-                SpecQueryArithmeticOperator.Add => left + right,
-                SpecQueryArithmeticOperator.Subtract => left - right,
-                SpecQueryArithmeticOperator.Multiply => left * right,
-                SpecQueryArithmeticOperator.Divide => right == decimal.Zero
-                    ? throw new InvalidOperationException("0으로 나눌 수 없어.")
-                    : left / right,
-                _ => throw new InvalidOperationException("지원하지 않는 산술 연산자야.")
-            };
-        }
-
-        private static decimal ConvertToDecimal(object? value)
-        {
-            if (value is null)
-            {
-                throw new InvalidOperationException("산술 연산 대상 값이 비어있어.");
-            }
-
-            if (value is decimal decimalValue)
-            {
-                return decimalValue;
-            }
-
-            if (value is string text && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
-            {
-                return parsed;
-            }
-
-            return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-        }
-
-        private static object? ResolvePathValue(SpecTreeNode root, IReadOnlyList<string> pathSegments)
-        {
-            if (pathSegments.Count == 0)
-            {
-                return null;
-            }
-
-            var current = root;
-            foreach (var segment in pathSegments)
-            {
-                var next = current.Children.FirstOrDefault(x => string.Equals(x.Key, segment, StringComparison.OrdinalIgnoreCase));
-                if (next is null)
-                {
-                    return null;
-                }
-
-                current = next;
-            }
-
-            return current.Value;
-        }
-
-        private static int CompareOperandValues(object? left, object? right)
-        {
-            if (left is null || right is null)
-            {
-                return int.MinValue;
-            }
-
-            if (TryConvertToDecimal(left, out var leftDecimal) && TryConvertToDecimal(right, out var rightDecimal))
-            {
-                return leftDecimal.CompareTo(rightDecimal);
-            }
-
-            if (left is bool leftBool && right is bool rightBool)
-            {
-                return leftBool.CompareTo(rightBool);
-            }
-
-            return string.Compare(
-                Convert.ToString(left, CultureInfo.InvariantCulture),
-                Convert.ToString(right, CultureInfo.InvariantCulture),
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool TryConvertToDecimal(object value, out decimal converted)
-        {
-            try
-            {
-                if (value is string text)
-                {
-                    return decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out converted);
-                }
-
-                converted = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-                return true;
-            }
-            catch
-            {
-                converted = 0;
-                return false;
-            }
-        }
-
         var cmp = string.Compare(nodeValue, queryValue, StringComparison.OrdinalIgnoreCase);
         return op switch
         {
@@ -433,6 +293,145 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
             SpecQueryOperator.LessThanOrEqual => cmp <= 0,
             _ => false
         };
+    }
+
+    private static bool EvaluateComparison(ComparisonSpecQueryCondition comparison, SpecTreeNode root)
+    {
+        var left = EvaluateOperand(comparison.Left, root);
+        if (comparison.Operator == SpecQueryOperator.Like)
+        {
+            var rightLike = EvaluateOperand(comparison.Right, root);
+            if (left is string leftText && rightLike is string rightText)
+            {
+                return leftText.Contains(rightText, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
+        var right = EvaluateOperand(comparison.Right, root);
+        var compareResult = CompareOperandValues(left, right);
+        return comparison.Operator switch
+        {
+            SpecQueryOperator.Equal => compareResult == 0,
+            SpecQueryOperator.GreaterThan => compareResult > 0,
+            SpecQueryOperator.GreaterThanOrEqual => compareResult >= 0,
+            SpecQueryOperator.LessThan => compareResult < 0,
+            SpecQueryOperator.LessThanOrEqual => compareResult <= 0,
+            _ => false
+        };
+    }
+
+    private static object? EvaluateOperand(SpecQueryOperand operand, SpecTreeNode root)
+    {
+        return operand switch
+        {
+            PathSpecQueryOperand path => ResolvePathValue(root, path.PathSegments),
+            LiteralSpecQueryOperand literal => literal.Value,
+            BinaryArithmeticSpecQueryOperand binary => EvaluateArithmetic(binary, root),
+            UnaryArithmeticSpecQueryOperand unary => -ConvertToDecimal(EvaluateOperand(unary.Operand, root)),
+            _ => throw new InvalidOperationException("지원하지 않는 피연산자 타입이야.")
+        };
+    }
+
+    private static decimal EvaluateArithmetic(BinaryArithmeticSpecQueryOperand operand, SpecTreeNode root)
+    {
+        var left = ConvertToDecimal(EvaluateOperand(operand.Left, root));
+        var right = ConvertToDecimal(EvaluateOperand(operand.Right, root));
+        return operand.Operator switch
+        {
+            SpecQueryArithmeticOperator.Add => left + right,
+            SpecQueryArithmeticOperator.Subtract => left - right,
+            SpecQueryArithmeticOperator.Multiply => left * right,
+            SpecQueryArithmeticOperator.Divide => right == decimal.Zero
+                ? throw new InvalidOperationException("0으로 나눌 수 없어.")
+                : left / right,
+            _ => throw new InvalidOperationException("지원하지 않는 산술 연산자야.")
+        };
+    }
+
+    private static decimal ConvertToDecimal(object? value)
+    {
+        if (value is null)
+        {
+            throw new InvalidOperationException("산술 연산 대상 값이 비어있어.");
+        }
+
+        if (value is decimal decimalValue)
+        {
+            return decimalValue;
+        }
+
+        if (value is string text && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return parsed;
+        }
+
+        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+    }
+
+    private static object? ResolvePathValue(SpecTreeNode root, IReadOnlyList<string> pathSegments)
+    {
+        if (pathSegments.Count == 0)
+        {
+            return null;
+        }
+
+        var current = root;
+        foreach (var segment in pathSegments)
+        {
+            var next = current.Children.FirstOrDefault(x => string.Equals(x.Key, segment, StringComparison.OrdinalIgnoreCase));
+            if (next is null)
+            {
+                return null;
+            }
+
+            current = next;
+        }
+
+        return current.Value;
+    }
+
+    private static int CompareOperandValues(object? left, object? right)
+    {
+        if (left is null || right is null)
+        {
+            return int.MinValue;
+        }
+
+        if (TryConvertToDecimal(left, out var leftDecimal) && TryConvertToDecimal(right, out var rightDecimal))
+        {
+            return leftDecimal.CompareTo(rightDecimal);
+        }
+
+        if (left is bool leftBool && right is bool rightBool)
+        {
+            return leftBool.CompareTo(rightBool);
+        }
+
+        return string.Compare(
+            Convert.ToString(left, CultureInfo.InvariantCulture),
+            Convert.ToString(right, CultureInfo.InvariantCulture),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryConvertToDecimal(object value, out decimal converted)
+    {
+        try
+        {
+            if (value is string text)
+            {
+                return decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out converted);
+            }
+
+            converted = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+            return true;
+        }
+        catch
+        {
+            converted = 0;
+            return false;
+        }
     }
 
     private async Task<List<int>> FilterByAncestorChainAsync(List<int> nodeIds, string[] ancestorKeys, CancellationToken ct)
