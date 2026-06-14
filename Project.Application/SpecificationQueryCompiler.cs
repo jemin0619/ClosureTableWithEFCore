@@ -47,7 +47,7 @@ internal static partial class SpecificationQueryCompiler
     {
         if (node.Left is not PathOperandNode leftPath)
         {
-            throw new InvalidOperationException("비교식의 왼쪽은 경로여야 해.");
+            throw new NotSupportedException("DB 조건에서는 산술식 또는 복합 피연산자를 지원하지 않아.");
         }
 
         string valueText;
@@ -64,7 +64,7 @@ internal static partial class SpecificationQueryCompiler
         }
         else
         {
-            throw new InvalidOperationException("비교식의 오른쪽은 리터럴이거나 단순 식별자여야 해.");
+            throw new NotSupportedException("DB 조건에서는 산술식 또는 복합 피연산자를 지원하지 않아.");
         }
 
         var pathSegments = leftPath.Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -151,8 +151,45 @@ internal static partial class SpecificationQueryCompiler
         {
             LiteralOperandNode literalNode => literalNode.Value,
             PathOperandNode pathNode => ResolveComparisonPathOperand(specification, pathNode.Path, expectedEnumType),
+            BinaryArithmeticOperandNode binaryNode => EvaluateArithmetic(binaryNode, specification),
+            UnaryArithmeticOperandNode unaryNode => EvaluateUnaryArithmetic(unaryNode, specification),
             _ => throw new InvalidOperationException("Unsupported operand node.")
         };
+    }
+
+    private static object EvaluateArithmetic(BinaryArithmeticOperandNode node, object specification)
+    {
+        var left = EvaluateOperand(node.Left, specification);
+        var right = EvaluateOperand(node.Right, specification);
+        var leftValue = ConvertToArithmeticValue(left);
+        var rightValue = ConvertToArithmeticValue(right);
+
+        return node.Operator switch
+        {
+            ArithmeticOperator.Add => leftValue + rightValue,
+            ArithmeticOperator.Subtract => leftValue - rightValue,
+            ArithmeticOperator.Multiply => leftValue * rightValue,
+            ArithmeticOperator.Divide => rightValue == 0
+                ? throw new InvalidOperationException("0으로 나눌 수 없어.")
+                : leftValue / rightValue,
+            _ => throw new InvalidOperationException("Unknown arithmetic operator.")
+        };
+    }
+
+    private static object EvaluateUnaryArithmetic(UnaryArithmeticOperandNode node, object specification)
+    {
+        var value = EvaluateOperand(node.Operand, specification);
+        return -ConvertToArithmeticValue(value);
+    }
+
+    private static decimal ConvertToArithmeticValue(object? value)
+    {
+        if (value is null || !TryConvertToDecimal(value, out var converted))
+        {
+            throw new InvalidOperationException("산술 연산은 숫자 값에만 사용할 수 있어.");
+        }
+
+        return converted;
     }
 
     private static object? ResolveComparisonPathOperand(object root, string path, Type? expectedEnumType)
@@ -434,14 +471,14 @@ internal static partial class SpecificationQueryCompiler
 
         private AstNode ParseComparisonOrOperand()
         {
-            var left = ParseOperand();
+            var left = ParseArithmeticOperand();
             if (!CurrentIsComparison())
             {
                 return left;
             }
 
             var comparisonOperatorToken = Next();
-            var right = ParseOperand();
+            var right = ParseArithmeticOperand();
             return new ComparisonNode(left, right, comparisonOperatorToken.Type switch
             {
                 TokenType.Equal => ComparisonOperator.Equal,
@@ -454,8 +491,62 @@ internal static partial class SpecificationQueryCompiler
             });
         }
 
-        private OperandNode ParseOperand()
+        private OperandNode ParseArithmeticOperand()
         {
+            return ParseAdditiveOperand();
+        }
+
+        private OperandNode ParseAdditiveOperand()
+        {
+            var left = ParseMultiplicativeOperand();
+            while (Peek().Type is TokenType.Plus or TokenType.Minus)
+            {
+                var operatorToken = Next().Type;
+                var right = ParseMultiplicativeOperand();
+                left = new BinaryArithmeticOperandNode(
+                    operatorToken == TokenType.Plus ? ArithmeticOperator.Add : ArithmeticOperator.Subtract,
+                    left,
+                    right);
+            }
+
+            return left;
+        }
+
+        private OperandNode ParseMultiplicativeOperand()
+        {
+            var left = ParseUnaryArithmeticOperand();
+            while (Peek().Type is TokenType.Asterisk or TokenType.Slash)
+            {
+                var operatorToken = Next().Type;
+                var right = ParseUnaryArithmeticOperand();
+                left = new BinaryArithmeticOperandNode(
+                    operatorToken == TokenType.Asterisk ? ArithmeticOperator.Multiply : ArithmeticOperator.Divide,
+                    left,
+                    right);
+            }
+
+            return left;
+        }
+
+        private OperandNode ParseUnaryArithmeticOperand()
+        {
+            if (Match(TokenType.Minus))
+            {
+                return new UnaryArithmeticOperandNode(ParseUnaryArithmeticOperand());
+            }
+
+            return ParseOperandAtom();
+        }
+
+        private OperandNode ParseOperandAtom()
+        {
+            if (Match(TokenType.OpenParenthesis))
+            {
+                var nested = ParseArithmeticOperand();
+                Expect(TokenType.CloseParenthesis);
+                return nested;
+            }
+
             var token = Next();
             return token.Type switch
             {
@@ -586,6 +677,22 @@ internal static partial class SpecificationQueryCompiler
                         }
 
                         continue;
+                    case '+':
+                        tokens.Add(new Token(TokenType.Plus, "+"));
+                        index++;
+                        continue;
+                    case '-':
+                        tokens.Add(new Token(TokenType.Minus, "-"));
+                        index++;
+                        continue;
+                    case '*':
+                        tokens.Add(new Token(TokenType.Asterisk, "*"));
+                        index++;
+                        continue;
+                    case '/':
+                        tokens.Add(new Token(TokenType.Slash, "/"));
+                        index++;
+                        continue;
                     case '&':
                         if (index + 1 < query.Length && query[index + 1] == '&')
                         {
@@ -631,7 +738,7 @@ internal static partial class SpecificationQueryCompiler
                         }
                 }
 
-                if (char.IsDigit(current) || current == '-' && index + 1 < query.Length && char.IsDigit(query[index + 1]))
+                if (char.IsDigit(current))
                 {
                     var start = index;
                     index++;
@@ -715,6 +822,10 @@ internal static partial class SpecificationQueryCompiler
         Number,
         String,
         Boolean,
+        Plus,
+        Minus,
+        Asterisk,
+        Slash,
         Equal,
         GreaterThan,
         GreaterThanOrEqual,
@@ -733,6 +844,8 @@ internal static partial class SpecificationQueryCompiler
     private abstract record OperandNode : AstNode;
     private sealed record PathOperandNode(string Path) : OperandNode;
     private sealed record LiteralOperandNode(object? Value) : OperandNode;
+    private sealed record BinaryArithmeticOperandNode(ArithmeticOperator Operator, OperandNode Left, OperandNode Right) : OperandNode;
+    private sealed record UnaryArithmeticOperandNode(OperandNode Operand) : OperandNode;
     private sealed record ComparisonNode(OperandNode Left, OperandNode Right, ComparisonOperator Operator) : AstNode;
     private sealed record BinaryLogicalNode(LogicalOperator Operator, AstNode Left, AstNode Right) : AstNode;
     private sealed record UnaryLogicalNode(AstNode Operand) : AstNode;
@@ -751,5 +864,13 @@ internal static partial class SpecificationQueryCompiler
     {
         And,
         Or
+    }
+
+    private enum ArithmeticOperator
+    {
+        Add,
+        Subtract,
+        Multiply,
+        Divide
     }
 }
