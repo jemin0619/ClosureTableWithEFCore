@@ -86,13 +86,27 @@ public sealed class SpecificationService(ISpecificationRepository specificationR
         {
             var predicate = SpecificationQueryCompiler.Compile<TSpecification>(query);
             var serialCodes = await ListSerialCodesAsync(cancellationToken);
-            var evaluations = await Task.WhenAll(serialCodes.Select(async serialCode =>
+            var matches = new bool[serialCodes.Count];
+            using var throttler = new SemaphoreSlim(8);
+
+            var tasks = serialCodes.Select((serialCode, index) => EvaluateWithThrottleAsync(serialCode, index));
+            await Task.WhenAll(tasks);
+            return serialCodes.Where((_, index) => matches[index]).ToList();
+
+            async Task EvaluateWithThrottleAsync(string serialCode, int index)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var specification = await LoadSpecificationAsync<TSpecification>(serialCode, cancellationToken);
-                return specification is not null && predicate(specification) ? serialCode : null;
-            }));
-            return evaluations.Where(x => x is not null).Cast<string>().ToList();
+                await throttler.WaitAsync(cancellationToken);
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var specification = await LoadSpecificationAsync<TSpecification>(serialCode, cancellationToken);
+                    matches[index] = specification is not null && predicate(specification);
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            }
         }
     }
     Task<string?> ISpecValueReader.GetValueAsync(string serialCode, string path, CancellationToken cancellationToken)
