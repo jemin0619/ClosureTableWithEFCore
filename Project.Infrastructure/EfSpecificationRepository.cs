@@ -343,7 +343,7 @@ public sealed class EfSpecificationRepository(SpecDbContext dbContext, Specifica
             SpecQueryArithmeticOperator.Add => left + right,
             SpecQueryArithmeticOperator.Subtract => left - right,
             SpecQueryArithmeticOperator.Multiply => left * right,
-            SpecQueryArithmeticOperator.Divide => right == decimal.Zero
+            SpecQueryArithmeticOperator.Divide => right == 0m
                 ? throw new InvalidOperationException("0으로 나눌 수 없어.")
                 : left / right,
             _ => throw new InvalidOperationException("지원하지 않는 산술 연산자야.")
